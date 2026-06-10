@@ -1,0 +1,43 @@
+# cargo-deny configuration for ot-commissioner-rs.
+#
+# Gates the dependency graph on four axes: known security advisories, license
+# policy, dependency bans/duplicates, and crate sources. Run locally with
+# `cargo deny check`; CI runs the same in `.github/workflows/quality.yml`.
+#
+# The graph is evaluated with all features enabled to match the rest of CI.
+
+[graph]
+all-features = true
+
+[advisories]
+# Fail on any security advisory or yanked crate. No advisories are currently
+# ignored; add entries here only with a justification and a tracking link.
+yanked = "deny"
+ignore = []
+
+[licenses]
+# Production and dev dependencies are all permissive. Keep this list tight;
+# anything outside it must be reviewed before it enters the tree.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "Unicode-3.0",
+]
+confidence-threshold = 0.9
+
+[bans]
+# Wildcard version requirements are forbidden; duplicate versions are surfaced
+# as warnings (hygiene, not a hard security failure).
+multiple-versions = "warn"
+wildcards = "deny"
+allow = []
+deny = []
+
+[sources]
+# Only crates.io is trusted. Any unknown registry or git source is a failure.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

@@ -1,0 +1,6 @@
+# Allow `.unwrap()` / `.expect()` in test code (test functions and `#[cfg(test)]`
+# items). Combined with the crate-root `#![warn(clippy::unwrap_used,
+# clippy::expect_used)]`, this enforces the project rule that they are
+# prohibited in production code while keeping them ergonomic in tests.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true

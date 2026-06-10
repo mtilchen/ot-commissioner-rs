@@ -1,0 +1,30 @@
+[package]
+name = "ot-commissioner-rs"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+description = "Rust foundations for OpenThread commissioner sessions over MeshCoP"
+
+[features]
+default = []
+ot-commissioner-cxx = []
+
+[dependencies]
+aes = "0.8.4"
+ccm = { version = "0.5", features = ["alloc"] }
+cmac = "0.7.2"
+hex = "0.4"
+hmac = "0.12"
+p256 = { version = "0.13.2", default-features = false, features = ["arithmetic"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+sha2 = "0.10"
+subtle = "2"
+thiserror = "2"
+tokio = { version = "1.48", features = ["net", "time", "macros", "rt-multi-thread"] }
+zeroize = { version = "1.8", features = ["derive"] }
+
+[dev-dependencies]
+argh = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
