@@ -1,0 +1,123 @@
+# Coverage-guided fuzz harnesses for ot-commissioner-rs wire parsers.
+#
+# This crate is intentionally isolated from the main crate's workspace: it
+# requires a nightly toolchain (libfuzzer needs sanitizer codegen) and must
+# never become part of the stable production build or stable CI gates. Run with:
+#
+#   cargo +nightly fuzz run <target> -- -max_total_time=60
+#
+# Targets live in fuzz_targets/ and exercise every parser that accepts
+# attacker-controlled wire bytes.
+
+[package]
+name = "ot-commissioner-rs-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.ot-commissioner-rs]
+path = ".."
+
+# Keep this crate out of the parent package's build graph.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "dtls_record"
+path = "fuzz_targets/dtls_record.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dtls_handshake"
+path = "fuzz_targets/dtls_handshake.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dtls_client_hello"
+path = "fuzz_targets/dtls_client_hello.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dtls_server_hello"
+path = "fuzz_targets/dtls_server_hello.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dtls_hello_verify"
+path = "fuzz_targets/dtls_hello_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "coap_message"
+path = "fuzz_targets/coap_message.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tlv_set"
+path = "fuzz_targets/tlv_set.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dataset"
+path = "fuzz_targets/dataset.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ecjpake_kkpp"
+path = "fuzz_targets/ecjpake_kkpp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ecjpake_key_exchange"
+path = "fuzz_targets/ecjpake_key_exchange.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "net_diag_data"
+path = "fuzz_targets/net_diag_data.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "udp_rx"
+path = "fuzz_targets/udp_rx.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "join_fin"
+path = "fuzz_targets/join_fin.rs"
+test = false
+doc = false
+bench = false
