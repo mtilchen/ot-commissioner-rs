@@ -199,3 +199,10 @@ at your option.
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions.
+
+## Disclaimer
+
+This is an independent, personal open-source project. It is not endorsed by,
+affiliated with, or sponsored by the Thread Group or the author's employer.
+"Thread" is a trademark of the Thread Group, used here only descriptively to
+identify the protocol this software implements.
