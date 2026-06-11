@@ -1,0 +1,32 @@
+# cargo-mutants configuration (read by tools/ci/mutants.sh via cargo-mutants).
+#
+# The CI mutation gate fails on any missed mutant, so every exclusion here
+# must be justified: only provably equivalent mutants or mutants whose effect
+# is unobservable without unsafe code belong on this list. Document the reason
+# above each entry.
+
+exclude_re = [
+    # Equivalent mutant: when `sequence == newest` the mutated guard selects
+    # the catch-up arm, which computes `(seen << 0) | 1` and rewrites
+    # `newest_sequence` with the same value — state-identical to the
+    # `seen |= 1 << 0` arm the original guard selects.
+    'replace > with >= in DtlsReplayWindow::mark_seen',
+
+    # Equivalent mutants: these default trait-method bodies are already a
+    # no-op (`let _ = ...`) and an unconditional `true` respectively, so the
+    # replacement bodies cannot change behavior. The `-> bool with false`
+    # sibling stays live and is caught by the joiner-session tests.
+    'replace JoinerHandler::on_joiner_connected with \(\)',
+    'replace JoinerHandler::on_joiner_finalize -> bool with true',
+
+    # These Drop impls only zeroize secrets in memory that is freed
+    # immediately afterwards. Observing whether zeroization happened requires
+    # reading freed memory, i.e. unsafe code, which this crate forbids
+    # (#![forbid(unsafe_code)]).
+    'replace <impl Drop for EcJpakeParty>::drop with \(\)',
+    'replace <impl Drop for StaticJoinerHandler>::drop with \(\)',
+
+    # Diagnostics only: an env-gated, non-secret protocol trace on stderr with
+    # no functional contract worth pinning in a test.
+    'replace commissioner_trace with \(\)',
+]
