@@ -377,7 +377,7 @@ pub fn parse_unfragmented_handshake_messages(record: &DtlsRecord) -> Result<Vec<
 /// handshake messages are at most a few hundred bytes, so this generous 64 KiB
 /// cap bounds the buffer a peer can make the reassembler allocate from a single
 /// fragment header.
-const MAX_HANDSHAKE_MESSAGE_LEN: u32 = 64 * 1024;
+pub(super) const MAX_HANDSHAKE_MESSAGE_LEN: u32 = 64 * 1024;
 
 /// Reassembles DTLS handshake fragments for one message.
 #[derive(Debug, Default, Clone)]
