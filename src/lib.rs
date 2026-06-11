@@ -32,6 +32,8 @@
 //! directly and so advanced users can build or inspect MeshCoP messages, but
 //! they are not the recommended entry point.
 
+#[cfg(feature = "cli")]
+pub mod cli;
 pub mod commissioner;
 pub mod crypto;
 pub mod dataset;
