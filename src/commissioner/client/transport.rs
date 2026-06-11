@@ -13,8 +13,8 @@ use crate::{
 
 use super::super::types::{CommissionerEvent, CommissionerState, DatasetFlags};
 use super::{
-    Commissioner, MeshcopRoute, aloc_address, check_state_response, commissioner_trace,
-    meshcop_timeout,
+    Commissioner, MESHCOP_TIMEOUT, MeshcopRoute, aloc_address, check_state_response,
+    commissioner_trace,
 };
 
 impl Commissioner {
@@ -277,7 +277,7 @@ impl Commissioner {
     async fn ensure_dtls_session(&mut self) -> Result<()> {
         if self.dtls_session.is_none() {
             let session =
-                DtlsSession::connect(&self.socket, self.config.pskc.as_bytes(), meshcop_timeout())
+                DtlsSession::connect(&self.socket, self.config.pskc.as_bytes(), MESHCOP_TIMEOUT)
                     .await?;
             self.dtls_session = Some(session);
         }
@@ -309,7 +309,7 @@ impl Commissioner {
             .as_mut()
             .ok_or(Error::InvalidState("DTLS session is not established"))?;
         session
-            .recv_application_data(&self.socket, meshcop_timeout())
+            .recv_application_data(&self.socket, MESHCOP_TIMEOUT)
             .await
     }
 
