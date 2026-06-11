@@ -125,6 +125,80 @@ fn rejects_oversized_handshake_message_length() {
 }
 
 #[test]
+fn accepts_handshake_message_at_the_reassembly_cap() {
+    // The 64 KiB literals below intentionally restate the cap rather than
+    // reusing the constant, so a wrongly-computed cap cannot satisfy them.
+    assert_eq!(MAX_HANDSHAKE_MESSAGE_LEN, 65536);
+
+    // The cap is inclusive: a message of exactly 64 KiB must still
+    // reassemble, and one byte more must be rejected.
+    let at_cap = HandshakeFragment {
+        header: HandshakeHeader {
+            message_type: HandshakeType::ClientHello,
+            length: 65536,
+            message_seq: 0,
+            fragment_offset: 0,
+            fragment_length: 65536,
+        },
+        fragment: vec![0x5a; 65536],
+    };
+    let mut reassembler = HandshakeReassembler::default();
+    let message = reassembler.push(at_cap).unwrap().unwrap();
+    assert_eq!(message.payload.len(), 65536);
+
+    let over_cap = HandshakeFragment {
+        header: HandshakeHeader {
+            message_type: HandshakeType::ClientHello,
+            length: 65537,
+            message_seq: 0,
+            fragment_offset: 0,
+            fragment_length: 2,
+        },
+        fragment: b"ab".to_vec(),
+    };
+    let mut reassembler = HandshakeReassembler::default();
+    assert!(reassembler.push(over_cap).is_err());
+}
+
+#[test]
+fn rejects_handshake_header_with_any_single_oversized_field() {
+    // Each 24-bit field is validated independently: exactly one field past
+    // MAX_U24 must fail validation with the 24-bit-field error specifically,
+    // not fall through to the fragment-bounds check.
+    fn assert_u24_field_error(header: HandshakeHeader) {
+        match header.validate() {
+            Err(crate::Error::Crypto(message)) => assert!(
+                message.contains("24-bit"),
+                "expected the 24-bit field error, got: {message}"
+            ),
+            other => panic!("expected the 24-bit field error, got {other:?}"),
+        }
+    }
+
+    let base = HandshakeHeader {
+        message_type: HandshakeType::ClientHello,
+        length: 10,
+        message_seq: 0,
+        fragment_offset: 0,
+        fragment_length: 10,
+    };
+    assert!(base.validate().is_ok());
+
+    assert_u24_field_error(HandshakeHeader {
+        length: MAX_U24 + 1,
+        ..base
+    });
+    assert_u24_field_error(HandshakeHeader {
+        fragment_offset: MAX_U24 + 1,
+        ..base
+    });
+    assert_u24_field_error(HandshakeHeader {
+        fragment_length: MAX_U24 + 1,
+        ..base
+    });
+}
+
+#[test]
 fn rejects_conflicting_handshake_overlap() {
     let first = HandshakeFragment {
         header: HandshakeHeader {
