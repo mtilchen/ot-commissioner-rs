@@ -153,6 +153,20 @@ impl ScriptedResponse {
         Self::changed(payload, false)
     }
 
+    /// Creates an accepting petition response that also echoes the petitioner's
+    /// Commissioner ID, as real Thread border agents do. The echoed ID is not a
+    /// conflict — the petition is still accepted.
+    pub(crate) fn petition_accept_with_id(session_id: u16, commissioner_id: &str) -> Self {
+        let mut payload = state_payload(MeshcopState::Accept);
+        append_u16(&mut payload, TLV_COMMISSIONER_SESSION_ID, session_id);
+        append_tlv(
+            &mut payload,
+            crate::meshcop::TLV_COMMISSIONER_ID,
+            commissioner_id.as_bytes(),
+        );
+        Self::changed(payload, false)
+    }
+
     /// Creates a rejecting petition response with an existing commissioner ID.
     pub(crate) fn petition_reject(existing_commissioner_id: &str) -> Self {
         let mut payload = state_payload(MeshcopState::Reject);
