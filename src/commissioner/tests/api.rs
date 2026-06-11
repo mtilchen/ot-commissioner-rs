@@ -394,6 +394,27 @@ async fn public_api_maps_protocol_errors_without_touching_live_network() {
     ));
     assert_eq!(rejected_petition.state(), CommissionerState::Connected);
 
+    // Real border agents echo the petitioner's Commissioner ID in an accepted
+    // petition response; that echoed ID must not be mistaken for a conflict.
+    let mut accepted_with_echo = scripted_commissioner(
+        ScriptedMeshcopTransport::new([exchange(
+            CommissionerOperation::Petition,
+            [ScriptedResponse::petition_accept_with_id(
+                0x4242,
+                "OT-commissioner",
+            )],
+        )]),
+        [],
+    )
+    .await;
+    let accepted = accepted_with_echo.petition().await.unwrap();
+    assert_eq!(accepted.session_id, 0x4242);
+    assert_eq!(
+        accepted.existing_commissioner_id.as_deref(),
+        Some("OT-commissioner")
+    );
+    assert_eq!(accepted_with_echo.state(), CommissionerState::Active);
+
     let mut rejected_set = scripted_commissioner(
         ScriptedMeshcopTransport::new([
             exchange(
