@@ -1,0 +1,76 @@
+name: Interop
+
+# Live interop proof: commission a real OpenThread border agent (posix
+# ot-daemon with a simulated RCP) on every change. See tools/ci/interop.sh.
+#
+# The weekly run catches drift against OpenThread even when this repo is
+# quiet. Bumping the pinned OpenThread ref is a deliberate one-line change in
+# tools/ci/interop.sh (OT_INTEROP_OPENTHREAD_REF).
+#
+# Follow-up planned: a joiner leg (simulated ot-cli-ftd node joining via this
+# commissioner's relay/JOIN_FIN/KEK path).
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  interop:
+    name: OpenThread Interop
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: interop-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            interop-${{ runner.os }}-
+            cargo-${{ runner.os }}-
+
+      - name: Cache OpenThread build
+        uses: actions/cache@v4
+        with:
+          path: /tmp/ot-rs-interop/openthread
+          key: openthread-${{ runner.os }}-${{ hashFiles('tools/ci/interop.sh') }}
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+
+      - name: Run interop test
+        run: tools/ci/interop.sh
+
+      - name: Upload daemon log
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ot-daemon-log
+          path: /tmp/ot-rs-interop/ot-daemon.log
+          if-no-files-found: warn
