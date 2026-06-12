@@ -27,11 +27,16 @@ impl Color {
     }
 }
 
-/// Writes one colored line (color code + text + reset + newline), matching the
-/// C++ `Console::Write`.
+/// Renders one colored line (color code + text + reset + newline), matching
+/// the C++ `Console::Write` output bytes.
+fn render(line: &str, color: Color) -> String {
+    format!("{}{line}\u{1b}[0m\n", color.code())
+}
+
+/// Writes one colored line to stdout, matching the C++ `Console::Write`.
 pub fn write(line: &str, color: Color) {
     let mut out = io::stdout();
-    let _ = writeln!(out, "{}{line}\u{1b}[0m", color.code());
+    let _ = out.write_all(render(line, color).as_bytes());
     let _ = out.flush();
 }
 
@@ -57,5 +62,24 @@ pub fn read() -> Option<String> {
             }
             Err(_) => return None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_wraps_text_in_color_code_reset_and_newline() {
+        assert_eq!(
+            render("[done]", Color::Green),
+            "\u{1b}[32m[done]\u{1b}[0m\n"
+        );
+        assert_eq!(
+            render("[failed]", Color::Red),
+            "\u{1b}[31m[failed]\u{1b}[0m\n"
+        );
+        assert_eq!(render("logo", Color::Blue), "\u{1b}[34mlogo\u{1b}[0m\n");
+        assert_eq!(render("usage", Color::White), "\u{1b}[37musage\u{1b}[0m\n");
     }
 }
