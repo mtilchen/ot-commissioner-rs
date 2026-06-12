@@ -71,7 +71,9 @@ impl Commissioner {
         let response = self
             .execute(operation, request, MeshcopRoute::Direct, true)
             .await?;
-        response.ok_or(Error::InvalidState("MeshCoP exchange produced no response"))
+        response
+            .ok_or(Error::InvalidState("MeshCoP exchange produced no response"))
+            .and_then(require_success_response)
     }
 
     /// Executes a UDP-proxied exchange and returns the inner response.
@@ -86,7 +88,9 @@ impl Commissioner {
             destination_port: meshcop::DEFAULT_MM_PORT,
         };
         let response = self.execute(operation, request, route, true).await?;
-        response.ok_or(Error::InvalidState("MeshCoP exchange produced no response"))
+        response
+            .ok_or(Error::InvalidState("MeshCoP exchange produced no response"))
+            .and_then(require_success_response)
     }
 
     /// Executes a proxied command, waiting for a response only when the inner
@@ -433,4 +437,22 @@ impl Commissioner {
             },
         }
     }
+}
+
+/// Rejects CoAP client-error (4.xx) and server-error (5.xx) responses so a
+/// peer's failure surfaces as an error instead of being decoded as an empty
+/// payload. Any 2.xx success response passes through to the tolerant
+/// per-operation decoders.
+fn require_success_response(response: meshcop::CoapMessage) -> Result<meshcop::CoapMessage> {
+    let class = response.code.0 >> 5;
+    if class == 4 || class == 5 {
+        commissioner_trace(format_args!(
+            "MeshCoP exchange returned CoAP error code 0x{:02x}",
+            response.code.0
+        ));
+        return Err(Error::InvalidState(
+            "MeshCoP exchange returned a CoAP error response",
+        ));
+    }
+    Ok(response)
 }
