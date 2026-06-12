@@ -8,7 +8,7 @@ use crate::{
     meshcop::{self, CommissionerOperation, diag::NetDiagData},
 };
 
-use super::{Commissioner, check_state_response, commissioner_trace};
+use super::{Commissioner, check_state_response};
 
 impl Commissioner {
     /// Queries diagnostic TLVs from `destination`, or the leader when `None`.
@@ -72,6 +72,9 @@ impl Commissioner {
             flags,
             true,
         )?;
+        // Error-coded (4.xx/5.xx) responses are rejected by the transport
+        // layer; any 2.xx success response is handed to the tolerant decoder,
+        // which copes with the per-vendor code variations seen in the field.
         let response = self
             .execute_proxied(
                 CommissionerOperation::DiagnosticGetUnicast,
@@ -79,21 +82,6 @@ impl Commissioner {
                 destination,
             )
             .await?;
-        // Reject only genuine CoAP error responses (class 4 client-error or 5
-        // server-error) so a node's failure is surfaced instead of being
-        // silently decoded as an empty answer. Any 2.xx success response is
-        // handed to the tolerant decoder, which copes with the per-vendor code
-        // variations seen in the field.
-        let class = response.code.0 >> 5;
-        if class == 4 || class == 5 {
-            commissioner_trace(format_args!(
-                "DIAG_GET.req returned CoAP error code 0x{:02x}",
-                response.code.0
-            ));
-            return Err(Error::InvalidState(
-                "DIAG_GET.req returned a CoAP error response",
-            ));
-        }
         NetDiagData::decode(&response.payload)
     }
 
