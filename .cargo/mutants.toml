@@ -29,4 +29,39 @@ exclude_re = [
     # Diagnostics only: an env-gated, non-secret protocol trace on stderr with
     # no functional contract worth pinning in a test.
     'replace commissioner_trace with \(\)',
+
+    # Equivalent mutant: the slide arm is only reached when `sequence > newest`,
+    # so `shift >= 1` and bit 0 of `seen << shift` is always zero, making
+    # `| 1` and `^ 1` identical.
+    'replace \| with \^ in DtlsReplayWindow::mark_seen',
+
+    # Equivalent mutants: the CoAP header byte ORs the version (bit 6), type
+    # (bits 4-5, type <= 3) and token length (bits 0-3, length <= 8 enforced
+    # just above) into disjoint bit fields, so `|` and `^` agree.
+    'replace \| with \^ in CoapMessage::encode',
+
+    # Equivalent mutant: the option header byte ORs two 4-bit nibbles
+    # (each <= 14) into disjoint half-bytes, so `|` and `^` agree.
+    'replace \| with \^ in encode_option_header',
+
+    # Equivalent mutant: the child RLOC composes bit 8 (`chunk[0] & 0x01`,
+    # shifted left by 8) with bits 0-7 (`chunk[1]`) — disjoint bit ranges,
+    # so `|` and `^` agree.
+    'replace \| with \^ in decode_child_table',
+
+    # Untestable without non-termination: `random_scalar` rejection-samples a
+    # nonzero scalar. Forcing the guard wrong only manifests as an infinite
+    # loop (a zero scalar occurs with probability ~2^-256), so these mutants
+    # can only ever time out, never fail an assertion.
+    'replace \|\| with && in random_scalar',
+    'delete ! in random_scalar',
+
+    # Untestable without non-termination: a dedicated unit test does fail this
+    # stub by assertion, but the session receive loops legitimately retry on
+    # an empty record batch (a zero-length datagram must be ignored, not
+    # treated as an error), so under the stub every sibling receive test spins
+    # on an always-ready future that never yields, and the test binary as a
+    # whole can only time out. Catching it would mean erroring on empty
+    # datagrams in production or inserting artificial yields.
+    'replace recv_records -> Result<Vec<DtlsRecord>> with Ok\(vec!\[\]\)',
 ]
