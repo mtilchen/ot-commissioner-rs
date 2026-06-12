@@ -1,16 +1,12 @@
 # ot-commissioner-rs
 
+[![Quality](https://github.com/mtilchen/ot-commissioner-rs/actions/workflows/quality.yml/badge.svg)](https://github.com/mtilchen/ot-commissioner-rs/actions/workflows/quality.yml)
+[![Interop](https://github.com/mtilchen/ot-commissioner-rs/actions/workflows/interop.yml/badge.svg)](https://github.com/mtilchen/ot-commissioner-rs/actions/workflows/interop.yml)
+[![Fuzz](https://github.com/mtilchen/ot-commissioner-rs/actions/workflows/fuzz.yml/badge.svg)](https://github.com/mtilchen/ot-commissioner-rs/actions/workflows/fuzz.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![Rust: 1.85+](https://img.shields.io/badge/rustc-1.85%2B-blue.svg)](#minimum-supported-rust-version)
 [![Edition 2024](https://img.shields.io/badge/edition-2024-blue.svg)](Cargo.toml)
 [![unsafe: none](https://img.shields.io/badge/unsafe-none-brightgreen.svg)](#security-and-quality)
-
-<!--
-After pushing to GitHub, add live CI status badges by replacing OWNER/REPO and
-moving these into the badge block above:
-[![Quality](https://github.com/OWNER/REPO/actions/workflows/quality.yml/badge.svg)](.github/workflows/quality.yml)
-[![Fuzz](https://github.com/OWNER/REPO/actions/workflows/fuzz.yml/badge.svg)](.github/workflows/fuzz.yml)
--->
 
 **A pure-Rust Thread MeshCoP commissioner.** Commission Thread devices and
 manage a network's operational state from Rust — establish the authenticated
@@ -106,13 +102,20 @@ process.
 - **Secret hygiene.** PSKc, J-PAKE scalars, datasets, and record-protection keys
   are redacted in `Debug` and zeroized on drop; constant-time primitives
   (`subtle` / RustCrypto) are used where applicable.
-- **Tests.** 162 deterministic tests plus gated live border-router tests,
+- **Tests.** 216 deterministic tests plus gated live border-router tests,
   including in-memory DTLS client-against-server handshakes, an in-process
   loopback DTLS server exercising the Tokio session driver, and a complete
   fake-joiner commissioning flow. Testing policy: no public commissioner
   operation lands without a scripted API test, no wire parser lands without
   malformed-input coverage, and crypto/protocol state machines carry
   negative-path tests, not only happy-path vectors.
+- **Live interop (CI-enforced).** Every change commissions a real OpenThread
+  border agent (posix `ot-daemon` at a pinned release, driven by a simulated
+  RCP) via [interop.yml](.github/workflows/interop.yml): the full DTLS 1.2 +
+  EC J-PAKE handshake, petition and keep-alive, a full active-dataset
+  comparison, and a UDP-proxied MGMT_COMMISSIONER_GET against the live
+  leader. A weekly scheduled run catches drift against OpenThread even when
+  this repo is quiet.
 - **Coverage gates (CI-enforced).** Minimum 80% line, 80% region, and 75%
   function coverage via `cargo-llvm-cov`.
 - **Mutation testing.** `cargo-mutants` runs against the high-risk protocol
