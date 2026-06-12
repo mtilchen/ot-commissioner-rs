@@ -646,6 +646,24 @@ impl Interpreter {
                 let Some(commissioner) = self.commissioner.as_mut() else {
                     return CommandValue::failed(NOT_CONNECTED);
                 };
+                // MGMT_ACTIVE_SET requires an Active Timestamp TLV newer than
+                // the network's. Fetch the current timestamp and bump it, like
+                // the C++ CommissionerApp does for per-field setters.
+                let seconds = match commissioner
+                    .get_active_dataset(DatasetFlags::ACTIVE_TIMESTAMP)
+                    .await
+                    .and_then(|current| current.active_timestamp())
+                {
+                    Ok(Some(ts)) => ts.seconds() + 1,
+                    Ok(None) => 1,
+                    Err(err) => return CommandValue::failed(err.to_string()),
+                };
+                dataset.set_raw(
+                    crate::dataset::TLV_ACTIVE_TIMESTAMP,
+                    crate::dataset::Timestamp::from_components(seconds, 0, false)
+                        .to_value()
+                        .to_vec(),
+                );
                 commissioner.set_active_dataset(&dataset).await.into()
             }
             Ok(false) => CommandValue::failed(format!("{field} cannot be set")),
@@ -1130,6 +1148,11 @@ const COMMANDS: &[(&str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commissioner::CommissionerConfig;
+    use crate::commissioner::harness::{
+        ScriptedExchange, ScriptedMeshcopTransport, ScriptedResponse,
+    };
+    use crate::meshcop::CommissionerOperation;
 
     /// Dispatches one offline command line (no border-agent session) and
     /// returns the rendered `[done]`/`[failed]` output.
@@ -1137,6 +1160,98 @@ mod tests {
         let mut interpreter = Interpreter::new(CliConfig::default());
         let tokens = tokenize(line).unwrap();
         interpreter.dispatch(&tokens).await.rendered()
+    }
+
+    /// Dispatches one line on `interpreter` and returns the rendered output.
+    async fn run_line(interpreter: &mut Interpreter, line: &str) -> String {
+        interpreter
+            .dispatch(&tokenize(line).unwrap())
+            .await
+            .rendered()
+    }
+
+    /// Builds an interpreter whose commissioner runs against the scripted
+    /// MeshCoP harness, so session commands exercise the production
+    /// request/response loop without a network.
+    async fn scripted_interpreter(
+        exchanges: impl IntoIterator<Item = (CommissionerOperation, Vec<ScriptedResponse>)>,
+        initial_events: impl IntoIterator<Item = CommissionerEvent>,
+    ) -> Interpreter {
+        let script = ScriptedMeshcopTransport::new(
+            exchanges
+                .into_iter()
+                .map(|(operation, responses)| ScriptedExchange::new(operation, responses)),
+        );
+        let mut commissioner = Commissioner::connect_scripted(
+            CommissionerConfig::pskc("ot-commissioner-rs", [0x11; 16]),
+            "127.0.0.1:49156".parse().unwrap(),
+            script,
+            initial_events,
+        )
+        .await
+        .unwrap();
+        commissioner.set_cached_mesh_local_prefix(Some([0xfd, 0x00, 0x0d, 0xb8, 0, 0, 0, 0]));
+        let mut interpreter = Interpreter::new(CliConfig::default());
+        interpreter.commissioner = Some(commissioner);
+        interpreter
+    }
+
+    /// Like [`scripted_interpreter`], but petitions first so the session is
+    /// `Active` — required by mutating and proxied operations.
+    async fn active_interpreter(
+        exchanges: impl IntoIterator<Item = (CommissionerOperation, Vec<ScriptedResponse>)>,
+        initial_events: impl IntoIterator<Item = CommissionerEvent>,
+    ) -> Interpreter {
+        let mut all = vec![(
+            CommissionerOperation::Petition,
+            vec![ScriptedResponse::petition_accept(0xbeef)],
+        )];
+        all.extend(exchanges);
+        let mut interpreter = scripted_interpreter(all, initial_events).await;
+        interpreter
+            .commissioner
+            .as_mut()
+            .unwrap()
+            .petition()
+            .await
+            .unwrap();
+        interpreter
+    }
+
+    /// An operational dataset carrying every field the per-field
+    /// `opdataset get` projections support.
+    fn full_dataset_bytes() -> Vec<u8> {
+        let mut dataset = Dataset::default();
+        dataset.set_raw(
+            crate::dataset::TLV_ACTIVE_TIMESTAMP,
+            (1u64 << 16).to_be_bytes().to_vec(),
+        );
+        dataset.set_raw(crate::dataset::TLV_CHANNEL, vec![0, 0, 19]);
+        dataset.set_raw(
+            crate::dataset::TLV_CHANNEL_MASK,
+            vec![0, 4, 0x00, 0x1f, 0xff, 0xc0],
+        );
+        dataset.set_raw(
+            crate::dataset::TLV_EXTENDED_PAN_ID,
+            vec![0xa6, 0x39, 0x13, 0x57, 0xb4, 0x75, 0x1d, 0x8a],
+        );
+        dataset.set_raw(
+            crate::dataset::TLV_MESH_LOCAL_PREFIX,
+            vec![0xfd, 0x00, 0x0d, 0xb8, 0, 0, 0, 0],
+        );
+        dataset.set_raw(crate::dataset::TLV_NETWORK_KEY, vec![0x42; 16]);
+        dataset.set_raw(crate::dataset::TLV_NETWORK_NAME, b"cli-net".to_vec());
+        dataset.set_raw(crate::dataset::TLV_PAN_ID, 0xfaceu16.to_be_bytes().to_vec());
+        dataset.set_raw(crate::dataset::TLV_PSKC, vec![0x24; 16]);
+        dataset.set_raw(
+            crate::dataset::TLV_SECURITY_POLICY,
+            vec![0x02, 0xa0, 0xff, 0xf8],
+        );
+        dataset.to_bytes().unwrap()
+    }
+
+    fn ok(value: impl std::fmt::Display) -> String {
+        format!("{value}\n[done]")
     }
 
     #[test]
@@ -1251,5 +1366,741 @@ mod tests {
             dispatch_line("start 127.0.0.1").await,
             format!("{SYNTAX_FEW_ARGS}\n[failed]")
         );
+    }
+
+    #[tokio::test]
+    async fn evaluate_and_print_handles_blank_bad_and_multi_network_lines() {
+        let mut interpreter = Interpreter::new(CliConfig::default());
+        // Blank input re-prompts, tokenizer errors and --nwk/--dom report
+        // failure, and a normal command dispatches; all print to stdout.
+        interpreter.evaluate_and_print("").await;
+        interpreter.evaluate_and_print("bad 'quote").await;
+        interpreter.evaluate_and_print("start --nwk net1").await;
+        interpreter.evaluate_and_print("state").await;
+        assert!(!interpreter.should_exit());
+        interpreter.evaluate_and_print("exit").await;
+        assert!(interpreter.should_exit());
+    }
+
+    #[tokio::test]
+    async fn start_validates_address_and_config_before_any_network_use() {
+        let mut interpreter = Interpreter::new(CliConfig::default());
+        assert_eq!(
+            run_line(&mut interpreter, "start nothost nope").await,
+            "invalid border-agent address 'nothost:nope'\n[failed]"
+        );
+        // The default configuration has no PSKc, so start fails before
+        // connecting anywhere.
+        let no_pskc = run_line(&mut interpreter, "start 127.0.0.1 49191").await;
+        assert!(no_pskc.ends_with("[failed]"), "{no_pskc}");
+    }
+
+    #[tokio::test]
+    async fn start_connect_only_binds_without_petitioning() {
+        let mut interpreter = Interpreter::new(CliConfig::default());
+        let set = run_line(
+            &mut interpreter,
+            "config set pskc 00112233445566778899aabbccddeeff",
+        )
+        .await;
+        assert_eq!(set, "[done]");
+        // --connect-only binds the UDP socket but defers DTLS and petitioning,
+        // so it succeeds without a border agent.
+        assert_eq!(
+            run_line(&mut interpreter, "start 127.0.0.1 49191 --connect-only").await,
+            "[done]"
+        );
+        assert_eq!(run_line(&mut interpreter, "state").await, ok("connected"));
+        assert_eq!(run_line(&mut interpreter, "active").await, ok("false"));
+        assert_eq!(
+            run_line(&mut interpreter, "sessionid").await,
+            "commissioner session is not active\n[failed]"
+        );
+        // stop resigns; without an active session that fails fast (offline)
+        // but still drops the session.
+        let stopped = run_line(&mut interpreter, "stop").await;
+        assert!(stopped.ends_with("[failed]"), "{stopped}");
+        assert_eq!(run_line(&mut interpreter, "state").await, ok("disabled"));
+        // stop with no session is a no-op success.
+        assert_eq!(run_line(&mut interpreter, "stop").await, "[done]");
+    }
+
+    #[tokio::test]
+    async fn scripted_session_reports_state_sessionid_and_stops() {
+        let mut interpreter = scripted_interpreter(
+            [
+                (
+                    CommissionerOperation::Petition,
+                    vec![ScriptedResponse::petition_accept(0xbeef)],
+                ),
+                (
+                    CommissionerOperation::KeepAlive,
+                    vec![ScriptedResponse::accept()],
+                ),
+            ],
+            [],
+        )
+        .await;
+        interpreter
+            .commissioner
+            .as_mut()
+            .unwrap()
+            .petition()
+            .await
+            .unwrap();
+        assert_eq!(run_line(&mut interpreter, "state").await, ok("active"));
+        assert_eq!(run_line(&mut interpreter, "active").await, ok("true"));
+        assert_eq!(run_line(&mut interpreter, "sessionid").await, ok(0xbeefu16));
+        assert_eq!(run_line(&mut interpreter, "stop").await, "[done]");
+        assert_eq!(run_line(&mut interpreter, "state").await, ok("disabled"));
+    }
+
+    #[tokio::test]
+    async fn borderagent_get_locator_renders_present_and_missing() {
+        let mut interpreter = scripted_interpreter(
+            [
+                (
+                    CommissionerOperation::GetCommissionerDataset,
+                    vec![ScriptedResponse::content(vec![
+                        crate::meshcop::TLV_BORDER_AGENT_LOCATOR,
+                        2,
+                        0x4c,
+                        0x00,
+                    ])],
+                ),
+                (
+                    CommissionerOperation::GetCommissionerDataset,
+                    vec![ScriptedResponse::content(Vec::new())],
+                ),
+                (
+                    CommissionerOperation::GetCommissionerDataset,
+                    vec![ScriptedResponse::reject()],
+                ),
+            ],
+            [],
+        )
+        .await;
+        assert_eq!(
+            run_line(&mut interpreter, "borderagent get locator").await,
+            ok("0x4c00")
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "borderagent get locator").await,
+            "border agent locator not present\n[failed]"
+        );
+        let rejected = run_line(&mut interpreter, "borderagent get locator").await;
+        assert!(rejected.ends_with("[failed]"), "{rejected}");
+        // Argument validation happens before any exchange.
+        assert_eq!(
+            run_line(&mut interpreter, "borderagent get oops").await,
+            "only 'borderagent get locator' is supported\n[failed]"
+        );
+        assert!(
+            run_line(&mut interpreter, "borderagent bogus")
+                .await
+                .contains("is not a valid sub-command")
+        );
+    }
+
+    #[tokio::test]
+    async fn joiner_commands_drive_steering_and_port_exchanges() {
+        let mut interpreter = active_interpreter(
+            [
+                // enable -> read current steering data, then set the updated one
+                (
+                    CommissionerOperation::GetCommissionerDataset,
+                    vec![ScriptedResponse::content(Vec::new())],
+                ),
+                (
+                    CommissionerOperation::SetCommissionerDataset,
+                    vec![ScriptedResponse::accept()],
+                ),
+                // enableall -> wildcard steering set
+                (
+                    CommissionerOperation::SetCommissionerDataset,
+                    vec![ScriptedResponse::accept()],
+                ),
+                // disableall -> cleared steering set
+                (
+                    CommissionerOperation::SetCommissionerDataset,
+                    vec![ScriptedResponse::accept()],
+                ),
+                // getport
+                (
+                    CommissionerOperation::GetCommissionerDataset,
+                    vec![ScriptedResponse::content(vec![
+                        crate::meshcop::TLV_JOINER_UDP_PORT,
+                        2,
+                        0x03,
+                        0xea,
+                    ])],
+                ),
+                // setport
+                (
+                    CommissionerOperation::SetCommissionerDataset,
+                    vec![ScriptedResponse::accept()],
+                ),
+            ],
+            [],
+        )
+        .await;
+        assert_eq!(
+            run_line(
+                &mut interpreter,
+                "joiner enable meshcop 0xdead00beef00cafe J01ABC"
+            )
+            .await,
+            "[done]"
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "joiner enableall meshcop PSKDALL").await,
+            "[done]"
+        );
+        // disable only rewrites local state; no exchange.
+        assert_eq!(
+            run_line(
+                &mut interpreter,
+                "joiner disable meshcop 0xdead00beef00cafe"
+            )
+            .await,
+            "[done]"
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "joiner disableall meshcop").await,
+            "[done]"
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "joiner getport meshcop").await,
+            ok(1002)
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "joiner setport meshcop 1002").await,
+            "[done]"
+        );
+        // Validation failures need no exchanges.
+        assert!(
+            run_line(&mut interpreter, "joiner enable ae 0x1 PSKD")
+                .await
+                .contains("(CCM) is not implemented")
+        );
+        assert!(
+            run_line(&mut interpreter, "joiner enable zigbee 0x1 PSKD")
+                .await
+                .contains("is not a valid joiner type")
+        );
+        assert!(
+            run_line(&mut interpreter, "joiner enable meshcop noteui PSKD")
+                .await
+                .contains("invalid EUI-64")
+        );
+        assert!(
+            run_line(&mut interpreter, "joiner setport meshcop 70000")
+                .await
+                .contains("invalid port")
+        );
+        assert!(
+            run_line(&mut interpreter, "joiner bogus meshcop")
+                .await
+                .contains("is not a valid sub-command")
+        );
+    }
+
+    #[tokio::test]
+    async fn commdataset_get_and_set_round_trip_json() {
+        let mut comm_dataset = Dataset::default();
+        comm_dataset.set_raw(
+            crate::meshcop::TLV_BORDER_AGENT_LOCATOR,
+            0x1234u16.to_be_bytes().to_vec(),
+        );
+        comm_dataset.set_raw(crate::meshcop::TLV_STEERING_DATA, vec![0xff]);
+        let mut interpreter = active_interpreter(
+            [
+                (
+                    CommissionerOperation::GetCommissionerDataset,
+                    vec![ScriptedResponse::content(comm_dataset.to_bytes().unwrap())],
+                ),
+                (
+                    CommissionerOperation::SetCommissionerDataset,
+                    vec![ScriptedResponse::accept()],
+                ),
+            ],
+            [],
+        )
+        .await;
+        let got = run_line(&mut interpreter, "commdataset get").await;
+        assert!(got.contains("\"BorderAgentLocator\": 4660"), "{got}");
+        assert!(got.contains("\"SteeringData\": \"ff\""), "{got}");
+        assert_eq!(
+            run_line(
+                &mut interpreter,
+                "commdataset set '{\"SteeringData\":\"ff\",\"JoinerUdpPort\":1000}'"
+            )
+            .await,
+            "[done]"
+        );
+        let bad = run_line(&mut interpreter, "commdataset set notjson").await;
+        assert!(bad.ends_with("[failed]"), "{bad}");
+        assert!(
+            run_line(&mut interpreter, "commdataset bogus")
+                .await
+                .contains("is not a valid sub-command")
+        );
+    }
+
+    #[tokio::test]
+    async fn bbrdataset_get_renders_raw_tlvs() {
+        let mut interpreter = scripted_interpreter(
+            [(
+                CommissionerOperation::GetBbrDataset,
+                vec![ScriptedResponse::content(vec![1, 2, 0xab, 0xcd])],
+            )],
+            [],
+        )
+        .await;
+        let got = run_line(&mut interpreter, "bbrdataset get").await;
+        assert!(got.contains("\"Tlv1\": \"abcd\""), "{got}");
+        assert!(
+            run_line(&mut interpreter, "bbrdataset set")
+                .await
+                .contains("not yet modeled")
+        );
+        assert!(
+            run_line(&mut interpreter, "bbrdataset bogus")
+                .await
+                .contains("is not a valid sub-command")
+        );
+    }
+
+    #[tokio::test]
+    async fn opdataset_get_projects_every_field_like_the_cpp_cli() {
+        let full = full_dataset_bytes();
+        let mut pending_dataset = Dataset::default();
+        pending_dataset.set_raw(crate::dataset::TLV_NETWORK_NAME, b"cli-net".to_vec());
+        pending_dataset.set_raw(
+            crate::dataset::TLV_PENDING_TIMESTAMP,
+            (2u64 << 16).to_be_bytes().to_vec(),
+        );
+        pending_dataset.set_raw(
+            crate::dataset::TLV_DELAY_TIMER,
+            60000u32.to_be_bytes().to_vec(),
+        );
+        let minimal = {
+            let mut d = Dataset::default();
+            d.set_raw(crate::dataset::TLV_NETWORK_NAME, b"min".to_vec());
+            d.to_bytes().unwrap()
+        };
+
+        let mut exchanges: Vec<(CommissionerOperation, Vec<ScriptedResponse>)> = (0..12)
+            .map(|_| {
+                (
+                    CommissionerOperation::GetActiveDataset,
+                    vec![ScriptedResponse::content(full.clone())],
+                )
+            })
+            .collect();
+        exchanges.push((
+            CommissionerOperation::GetPendingDataset,
+            vec![ScriptedResponse::content(
+                pending_dataset.to_bytes().unwrap(),
+            )],
+        ));
+        exchanges.push((
+            CommissionerOperation::GetActiveDataset,
+            vec![ScriptedResponse::content(minimal)],
+        ));
+        let mut interpreter = scripted_interpreter(exchanges, []).await;
+
+        let active = run_line(&mut interpreter, "opdataset get active").await;
+        for key in [
+            "ActiveTimestamp",
+            "Channel",
+            "ChannelMask",
+            "ExtendedPanId",
+            "MeshLocalPrefix",
+            "NetworkMasterKey",
+            "NetworkName",
+            "PanId",
+            "PSKc",
+            "SecurityPolicy",
+        ] {
+            assert!(active.contains(key), "missing {key} in {active}");
+        }
+
+        let expect_json = |value: &serde_json::Value| ok(json::dump(value));
+        assert_eq!(
+            run_line(&mut interpreter, "opdataset get activetimestamp").await,
+            expect_json(&json!({ "Seconds": 1, "Ticks": 0, "U": 0 }))
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "opdataset get channel").await,
+            expect_json(&json!({ "Page": 0, "Number": 19 }))
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "opdataset get channelmask").await,
+            expect_json(&json!([{ "Page": 0, "Masks": "001fffc0" }]))
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "opdataset get xpanid").await,
+            ok("a6391357b4751d8a")
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "opdataset get meshlocalprefix").await,
+            ok("fd00:db8::/64")
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "opdataset get networkmasterkey").await,
+            ok("42".repeat(16))
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "opdataset get networkname").await,
+            ok("cli-net")
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "opdataset get panid").await,
+            ok("0xface")
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "opdataset get pskc").await,
+            ok("24".repeat(16))
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "opdataset get securitypolicy").await,
+            expect_json(&json!({ "RotationTime": 672, "Flags": "fff8" }))
+        );
+        // Unknown fields still fetch the dataset first, then report.
+        assert_eq!(
+            run_line(&mut interpreter, "opdataset get bogus").await,
+            "bogus is not a valid property\n[failed]"
+        );
+        let pending = run_line(&mut interpreter, "opdataset get pending").await;
+        assert!(pending.contains("PendingTimestamp"), "{pending}");
+        assert!(pending.contains("\"Delay\": 60000"), "{pending}");
+        assert_eq!(
+            run_line(&mut interpreter, "opdataset get pskc").await,
+            "pskc is not present in the active dataset\n[failed]"
+        );
+    }
+
+    #[tokio::test]
+    async fn opdataset_set_builds_field_and_json_updates() {
+        // Each per-field set first fetches the current Active Timestamp (to
+        // bump it) and then issues the MGMT_ACTIVE_SET.
+        let mut with_timestamp = Dataset::default();
+        with_timestamp.set_raw(
+            crate::dataset::TLV_ACTIVE_TIMESTAMP,
+            (7u64 << 16).to_be_bytes().to_vec(),
+        );
+        let timestamp_bytes = with_timestamp.to_bytes().unwrap();
+        let mut exchanges: Vec<(CommissionerOperation, Vec<ScriptedResponse>)> = Vec::new();
+        for index in 0..8 {
+            // One get answers without a timestamp to cover the
+            // first-ever-update fallback.
+            let get_payload = if index == 7 {
+                Vec::new()
+            } else {
+                timestamp_bytes.clone()
+            };
+            exchanges.push((
+                CommissionerOperation::GetActiveDataset,
+                vec![ScriptedResponse::content(get_payload)],
+            ));
+            exchanges.push((
+                CommissionerOperation::SetActiveDataset,
+                vec![ScriptedResponse::accept()],
+            ));
+        }
+        // The full-JSON forms send the user's dataset as-is (no bump).
+        exchanges.push((
+            CommissionerOperation::SetActiveDataset,
+            vec![ScriptedResponse::accept()],
+        ));
+        exchanges.push((
+            CommissionerOperation::SetPendingDataset,
+            vec![ScriptedResponse::accept()],
+        ));
+        let mut interpreter = active_interpreter(exchanges, []).await;
+
+        for line in [
+            "opdataset set channel 0 19",
+            "opdataset set xpanid a6391357b4751d8a",
+            "opdataset set networkmasterkey 00112233445566778899aabbccddeeff",
+            "opdataset set networkname new-name",
+            "opdataset set panid 0xface",
+            "opdataset set pskc 00112233445566778899aabbccddeeff",
+            "opdataset set meshlocalprefix fd00:db8::/64",
+            "opdataset set securitypolicy 672 fff8",
+            "opdataset set active '{\"ActiveTimestamp\":{\"Seconds\":8,\"Ticks\":0,\"U\":0},\"NetworkName\":\"json-net\"}'",
+            "opdataset set pending '{\"ActiveTimestamp\":{\"Seconds\":8,\"Ticks\":0,\"U\":0},\"PendingTimestamp\":{\"Seconds\":9,\"Ticks\":0,\"U\":0},\"Delay\":60000,\"NetworkName\":\"json-pend\"}'",
+        ] {
+            assert_eq!(run_line(&mut interpreter, line).await, "[done]", "{line}");
+        }
+
+        // Validation failures consume no exchanges.
+        assert_eq!(
+            run_line(&mut interpreter, "opdataset set bogusfield v").await,
+            "bogusfield cannot be set\n[failed]"
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "opdataset set channel zero nineteen").await,
+            "invalid page\n[failed]"
+        );
+        assert!(
+            run_line(&mut interpreter, "opdataset set xpanid zz")
+                .await
+                .ends_with("[failed]")
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "opdataset set securitypolicy notnum fff8").await,
+            "invalid rotation time\n[failed]"
+        );
+        assert!(
+            run_line(&mut interpreter, "opdataset set securitypolicy 672")
+                .await
+                .contains("flags must not be empty")
+        );
+        assert!(
+            run_line(&mut interpreter, "opdataset bogus active")
+                .await
+                .contains("is not a valid sub-command")
+        );
+        let bad_json = run_line(&mut interpreter, "opdataset set active notjson").await;
+        assert!(bad_json.ends_with("[failed]"), "{bad_json}");
+    }
+
+    #[tokio::test]
+    async fn managed_commands_mlr_and_announce_route_through_the_proxy() {
+        let mut interpreter = active_interpreter(
+            [
+                (
+                    CommissionerOperation::Reenroll,
+                    vec![ScriptedResponse::changed_without_state()],
+                ),
+                (
+                    CommissionerOperation::DomainReset,
+                    vec![ScriptedResponse::changed_without_state()],
+                ),
+                (
+                    CommissionerOperation::Migrate,
+                    vec![ScriptedResponse::changed_without_state()],
+                ),
+                (
+                    CommissionerOperation::RegisterMulticastListener,
+                    vec![ScriptedResponse::content(vec![
+                        crate::meshcop::THREAD_TLV_STATUS,
+                        1,
+                        0,
+                    ])],
+                ),
+                (
+                    CommissionerOperation::AnnounceBegin,
+                    vec![ScriptedResponse::changed_without_state()],
+                ),
+            ],
+            [],
+        )
+        .await;
+        assert_eq!(
+            run_line(&mut interpreter, "reenroll fd00::1").await,
+            "[done]"
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "domainreset fd00::1").await,
+            "[done]"
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "migrate fd00::1 target-net").await,
+            "[done]"
+        );
+        assert_eq!(run_line(&mut interpreter, "mlr ff05::1 300").await, ok(0));
+        assert_eq!(
+            run_line(&mut interpreter, "announce 0x7fff800 2 100 fd00::1").await,
+            "[done]"
+        );
+        // Argument validation happens before any exchange.
+        assert!(
+            run_line(&mut interpreter, "reenroll notaddr")
+                .await
+                .contains("invalid device address")
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "mlr ff05::1 forever").await,
+            "invalid timeout\n[failed]"
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "announce nope 2 100 fd00::1").await,
+            "invalid announce arguments\n[failed]"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn panid_query_and_energy_scan_collect_reports() {
+        let mut interpreter = active_interpreter(
+            [
+                (
+                    CommissionerOperation::PanIdQuery,
+                    vec![ScriptedResponse::changed_without_state()],
+                ),
+                (
+                    CommissionerOperation::EnergyScan,
+                    vec![ScriptedResponse::changed_without_state()],
+                ),
+            ],
+            [
+                CommissionerEvent::PanIdConflict {
+                    peer_addr: "fd00::9".to_string(),
+                    channel_mask: 0x07fff800,
+                    pan_id: 0xface,
+                },
+                CommissionerEvent::EnergyReport {
+                    peer_addr: "fd00::9".to_string(),
+                    channel_mask: 0x07fff800,
+                    energy_list: vec![0x9c, 0x80],
+                },
+            ],
+        )
+        .await;
+        assert_eq!(
+            run_line(&mut interpreter, "panid query 0x7fff800 0xface fd00::1").await,
+            "[done]"
+        );
+        let conflicts = run_line(&mut interpreter, "panid conflict 0xface").await;
+        assert!(conflicts.contains("\"Peer\": \"fd00::9\""), "{conflicts}");
+        assert!(conflicts.contains("\"PanId\": \"0xface\""), "{conflicts}");
+        assert_eq!(
+            run_line(&mut interpreter, "panid conflict 0xbeef").await,
+            ok("[]")
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "energy scan 0x7fff800 2 100 50 fd00::1").await,
+            "[done]"
+        );
+        let reports = run_line(&mut interpreter, "energy report").await;
+        assert!(reports.contains("\"Peer\": \"fd00::9\""), "{reports}");
+        assert!(reports.contains("-100"), "{reports}");
+        assert!(
+            run_line(&mut interpreter, "energy report fd00::9")
+                .await
+                .contains("fd00::9")
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "energy report fd00::8").await,
+            ok("[]")
+        );
+        // Invalid arguments and sub-commands.
+        assert_eq!(
+            run_line(&mut interpreter, "panid query nope 0xface fd00::1").await,
+            "invalid panid query arguments\n[failed]"
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "panid conflict nope").await,
+            "invalid panid\n[failed]"
+        );
+        assert!(
+            run_line(&mut interpreter, "panid bogus x")
+                .await
+                .contains("is not a valid sub-command")
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "energy scan nope 2 100 50 fd00::1").await,
+            "invalid energy scan arguments\n[failed]"
+        );
+        assert!(
+            run_line(&mut interpreter, "energy bogus")
+                .await
+                .contains("is not a valid sub-command")
+        );
+    }
+
+    #[tokio::test]
+    async fn netdiag_query_and_reset_render_diagnostics() {
+        // MAC Address (1) = 0x8000 and Leader Data (6); then an Ext MAC
+        // Address (0) answer; then a reset.
+        let mut interpreter = active_interpreter(
+            [
+                (
+                    CommissionerOperation::DiagnosticGetUnicast,
+                    vec![ScriptedResponse::content(vec![
+                        1, 2, 0x80, 0x00, 6, 8, 0, 0, 0, 1, 64, 10, 9, 5,
+                    ])],
+                ),
+                (
+                    CommissionerOperation::DiagnosticGetUnicast,
+                    vec![ScriptedResponse::content(vec![
+                        0, 8, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+                    ])],
+                ),
+                (
+                    CommissionerOperation::DiagnosticReset,
+                    vec![ScriptedResponse::changed_without_state()],
+                ),
+            ],
+            [],
+        )
+        .await;
+        let queried = run_line(&mut interpreter, "netdiag query fd00::1").await;
+        assert!(queried.contains("\"Rloc16\": \"0x8000\""), "{queried}");
+        assert!(queried.contains("LeaderData"), "{queried}");
+        let ext = run_line(&mut interpreter, "netdiag query extaddr fd00::1").await;
+        assert!(
+            ext.contains("\"ExtAddress\": \"1122334455667788\""),
+            "{ext}"
+        );
+        assert_eq!(
+            run_line(&mut interpreter, "netdiag reset maccounters fd00::1").await,
+            "[done]"
+        );
+        // Validation failures need no exchanges.
+        assert!(
+            run_line(&mut interpreter, "netdiag query bogus fd00::1")
+                .await
+                .contains("is not a valid type")
+        );
+        assert!(
+            run_line(&mut interpreter, "netdiag query notaddr")
+                .await
+                .contains("invalid address")
+        );
+        assert!(
+            run_line(&mut interpreter, "netdiag reset other fd00::1")
+                .await
+                .contains("only 'netdiag reset maccounters <addr>' supported")
+        );
+        assert!(
+            run_line(&mut interpreter, "netdiag bogus fd00::1")
+                .await
+                .contains("is not a valid sub-command")
+        );
+    }
+
+    #[tokio::test]
+    async fn protocol_errors_surface_as_failed_output() {
+        // A 4.04-coded response fails the exchange and the CLI reports it.
+        let mut interpreter = active_interpreter(
+            [
+                (
+                    CommissionerOperation::GetActiveDataset,
+                    vec![ScriptedResponse::Coded {
+                        code: crate::meshcop::CoapCode(0x84),
+                        payload: Vec::new(),
+                    }],
+                ),
+                (
+                    CommissionerOperation::SetActiveDataset,
+                    vec![ScriptedResponse::reject()],
+                ),
+            ],
+            [],
+        )
+        .await;
+        let active = run_line(&mut interpreter, "opdataset get active").await;
+        assert!(active.ends_with("[failed]"), "{active}");
+        // A State=Reject answer to a set surfaces as a rejection.
+        let set = run_line(
+            &mut interpreter,
+            "opdataset set active '{\"ActiveTimestamp\":{\"Seconds\":8,\"Ticks\":0,\"U\":0}}'",
+        )
+        .await;
+        assert!(set.contains("rejected"), "{set}");
+        assert!(set.ends_with("[failed]"), "{set}");
     }
 }
