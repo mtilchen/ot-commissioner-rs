@@ -540,6 +540,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn recv_records_parses_every_record_in_a_datagram() -> Result<()> {
+        let client = UdpSocket::bind("127.0.0.1:0").await?;
+        let server = UdpSocket::bind("127.0.0.1:0").await?;
+        client.connect(server.local_addr()?).await?;
+        server.connect(client.local_addr()?).await?;
+
+        let first = DtlsRecord::new(ContentType::Handshake, 0, 3, vec![0x0e])?;
+        let second = DtlsRecord::new(ContentType::ApplicationData, 1, 4, vec![0xaa, 0xbb])?;
+        let mut datagram = first.encode()?;
+        datagram.extend_from_slice(&second.encode()?);
+        server.send(&datagram).await?;
+
+        let records = recv_records(&client, Duration::from_secs(1)).await?;
+        assert_eq!(records, vec![first, second]);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn recv_application_data_times_out_without_records() -> Result<()> {
         let client = UdpSocket::bind("127.0.0.1:0").await?;
         let server = UdpSocket::bind("127.0.0.1:0").await?;

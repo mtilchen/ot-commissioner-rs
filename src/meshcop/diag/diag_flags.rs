@@ -3,8 +3,8 @@
 //! The bit assignments match `NetDiagData::k*Bit` in the C++ reference so flag
 //! values are portable between the two implementations.
 
-/// Extended MAC Address TLV (0).
-pub const EXT_MAC_ADDR: u64 = 1 << 0;
+/// Extended MAC Address TLV (0). Bit 0 of the flag word (`1 << 0`).
+pub const EXT_MAC_ADDR: u64 = 1;
 /// MAC Address (RLOC16) TLV (1).
 pub const MAC_ADDR: u64 = 1 << 1;
 /// Mode TLV (2).

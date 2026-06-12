@@ -571,6 +571,77 @@ async fn commissioner_routes_relay_rx_into_joiner_sessions() {
 }
 
 #[tokio::test]
+async fn joiner_session_survives_the_expiry_sweep_between_relay_messages() {
+    let mut rng = OsRng;
+    let joiner = ThreadDtlsHandshake::new(PSKD.as_bytes(), &mut rng);
+    let mut hello_state = joiner.client_hello_state().unwrap();
+    let client_hello = hello_state
+        .next_client_hello_record()
+        .unwrap()
+        .encode()
+        .unwrap();
+
+    // The same cookie-less ClientHello arrives twice; the expiry sweep that
+    // runs on every relay message must keep the live session in between.
+    let script = ScriptedMeshcopTransport::new([
+        exchange(
+            CommissionerOperation::Petition,
+            [ScriptedResponse::petition_accept(0x1234)],
+        ),
+        exchange(
+            CommissionerOperation::GetActiveDataset,
+            [
+                ScriptedResponse::Raw(relay_rx_message(&JOINER_IID, &client_hello)),
+                ScriptedResponse::Raw(relay_rx_message(&JOINER_IID, &client_hello)),
+                ScriptedResponse::content(dataset_with_name("after").to_bytes().unwrap()),
+            ],
+        ),
+    ]);
+    let mut commissioner = scripted_commissioner(script, []).await;
+    let mut handler = StaticJoinerHandler::new();
+    handler.enable_all(PSKD);
+    commissioner.set_joiner_handler(handler);
+    commissioner.petition().await.unwrap();
+    commissioner
+        .get_active_dataset(DatasetFlags::NETWORK_NAME)
+        .await
+        .unwrap();
+
+    let harness = commissioner.scripted_transport().unwrap();
+    let hello_verifies: Vec<(u64, Vec<u8>)> = harness
+        .sent_messages()
+        .iter()
+        .filter(|message| {
+            message.uri_path().unwrap().as_deref() == Some(crate::meshcop::uri::RELAY_TX)
+        })
+        .map(|relay_tx| {
+            let encapsulated = tlv_value(relay_tx, TLV_JOINER_DTLS_ENCAPSULATION).unwrap();
+            let records = DtlsRecord::parse_datagram(&encapsulated).unwrap();
+            let message =
+                parse_unfragmented_handshake_record(&records[0], HandshakeType::HelloVerifyRequest)
+                    .unwrap();
+            // HelloVerifyRequest body: 2-byte server version, 1-byte cookie
+            // length, cookie.
+            let cookie = message.payload[3..3 + message.payload[2] as usize].to_vec();
+            (records[0].header.sequence_number, cookie)
+        })
+        .collect();
+
+    // A persistent session keeps counting epoch-0 record sequence numbers and
+    // keeps its per-session cookie key; a session recreated between the two
+    // messages would restart at sequence zero with a fresh key.
+    let [(first_seq, first_cookie), (second_seq, second_cookie)] = hello_verifies.as_slice() else {
+        panic!(
+            "expected two relayed HelloVerifyRequests, got {}",
+            hello_verifies.len()
+        );
+    };
+    assert_eq!(*first_seq, 0);
+    assert_eq!(*second_seq, 1);
+    assert_eq!(first_cookie, second_cookie);
+}
+
+#[tokio::test]
 async fn commissioner_ignores_disabled_joiners_and_keeps_legacy_events() {
     let mut rng = OsRng;
     let joiner = ThreadDtlsHandshake::new(PSKD.as_bytes(), &mut rng);

@@ -25,6 +25,150 @@ fn coap_round_trip_with_options_and_payload() {
 }
 
 #[test]
+fn coap_round_trip_with_extended_option_nibbles() {
+    // Option deltas and value lengths covering the direct (0..=12),
+    // one-byte-extended (13..=268), and two-byte-extended (269..) nibble
+    // forms, including both boundaries of the one-byte form.
+    let msg = CoapMessage {
+        ty: CoapType::Confirmable,
+        code: CoapCode::POST,
+        message_id: 0x4242,
+        token: vec![0xaa],
+        options: vec![
+            CoapOption {
+                number: 11,
+                value: vec![0x01],
+            },
+            CoapOption {
+                number: 24, // delta 13: one-byte extension lower bound
+                value: vec![0x22; 13],
+            },
+            CoapOption {
+                number: 292, // delta 268: one-byte extension upper bound
+                value: vec![0x33; 268],
+            },
+            CoapOption {
+                number: 561, // delta 269: two-byte extension lower bound
+                value: vec![0x44; 300],
+            },
+        ],
+        payload: vec![0xff, 0x00],
+    };
+
+    let encoded = msg.encode().unwrap();
+    assert_eq!(CoapMessage::decode(&encoded).unwrap(), msg);
+}
+
+#[test]
+fn coap_token_length_boundaries_are_enforced() {
+    let mut msg = CoapMessage {
+        ty: CoapType::Confirmable,
+        code: CoapCode::POST,
+        message_id: 7,
+        token: vec![0xab; 8],
+        options: Vec::new(),
+        payload: Vec::new(),
+    };
+    let encoded = msg.encode().unwrap();
+    assert_eq!(CoapMessage::decode(&encoded).unwrap(), msg);
+
+    msg.token = vec![0xab; 9];
+    assert!(msg.encode().is_err(), "9-byte token must not encode");
+
+    let mut tkl_nine = vec![0x49, 0x02, 0x00, 0x07];
+    tkl_nine.extend_from_slice(&[0xab; 9]);
+    assert!(
+        CoapMessage::decode(&tkl_nine).is_err(),
+        "TKL 9 must not decode"
+    );
+
+    let truncated_token = [0x42, 0x02, 0x00, 0x07, 0xab];
+    assert!(
+        CoapMessage::decode(&truncated_token).is_err(),
+        "token shorter than TKL must not decode"
+    );
+}
+
+#[test]
+fn coap_decodes_reset_type_and_rejects_truncated_two_byte_extension() {
+    let reset = CoapMessage::decode(&[0x70, 0x00, 0x12, 0x34]).unwrap();
+    assert_eq!(reset.ty, CoapType::Reset);
+    assert_eq!(reset.code, CoapCode::EMPTY);
+    assert_eq!(reset.message_id, 0x1234);
+
+    // A 14 (two-byte) extension nibble followed by only one trailing byte.
+    assert!(CoapMessage::decode(&[0x40, 0x02, 0x00, 0x01, 0xe0, 0x01]).is_err());
+
+    // A message that ends exactly at a complete two-byte extension is valid:
+    // the truncation check must not reject a remainder of exactly two bytes.
+    let exact = CoapMessage::decode(&[0x40, 0x02, 0x00, 0x01, 0xe0, 0x00, 0x00]).unwrap();
+    assert_eq!(
+        exact.options,
+        vec![CoapOption {
+            number: 269,
+            value: Vec::new(),
+        }]
+    );
+}
+
+#[test]
+fn coap_empty_ack_predicate_requires_every_field() {
+    let ack = CoapMessage::empty_ack(0x0102);
+    assert!(ack.is_empty_ack_for(0x0102));
+
+    let mut wrong_type = ack.clone();
+    wrong_type.ty = CoapType::Confirmable;
+    let mut wrong_code = ack.clone();
+    wrong_code.code = CoapCode::CHANGED;
+    let mut wrong_id = ack.clone();
+    wrong_id.message_id = 0x0103;
+    let mut with_token = ack.clone();
+    with_token.token = vec![0xab];
+    let mut with_option = ack.clone();
+    with_option.options.push(CoapOption {
+        number: 11,
+        value: Vec::new(),
+    });
+    let mut with_payload = ack.clone();
+    with_payload.payload = vec![0x00];
+
+    for (name, message) in [
+        ("type", wrong_type),
+        ("code", wrong_code),
+        ("message id", wrong_id),
+        ("token", with_token),
+        ("options", with_option),
+        ("payload", with_payload),
+    ] {
+        assert!(!message.is_empty_ack_for(0x0102), "{name}");
+    }
+}
+
+#[test]
+fn set_uri_path_replaces_path_options_and_keeps_others() {
+    let mut msg = CoapMessage::post_request(
+        CoapType::Confirmable,
+        1,
+        [0xaa],
+        uri::MGMT_ACTIVE_GET,
+        Vec::new(),
+    )
+    .unwrap();
+    msg.options.push(CoapOption {
+        number: 15,
+        value: b"keep".to_vec(),
+    });
+
+    msg.set_uri_path("/c/as").unwrap();
+    assert_eq!(msg.uri_path().unwrap(), Some("/c/as".to_string()));
+    assert!(msg.options.iter().any(|option| option.number == 15));
+
+    msg.set_uri_path("/").unwrap();
+    assert_eq!(msg.uri_path().unwrap(), None);
+    assert!(msg.options.iter().any(|option| option.number == 15));
+}
+
+#[test]
 fn coap_decoder_rejects_malformed_inputs() {
     let cases = [
         ("truncated header", vec![0x40, 0x02, 0x00]),

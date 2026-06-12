@@ -125,6 +125,43 @@ fn child_timeout_and_network_data_boundaries_decode_exactly() {
 }
 
 #[test]
+fn network_data_iteration_advances_past_each_tlv_exactly() {
+    use diag::NetworkData;
+
+    // Two prefix TLVs back to back; the first carries an unknown sub-TLV.
+    // Decoding both proves the iterator advances by exactly header plus
+    // length: the existing minimal cases use length 2, where `2 + len` and
+    // `2 * len` coincide, so this needs asymmetric lengths.
+    let data = NetworkData::decode(&[
+        1 << 1,
+        9,
+        0,
+        16,
+        0xfd,
+        0x00,
+        5 << 1,
+        3,
+        1,
+        2,
+        3, // prefix fd00::/16 with an unknown sub-TLV
+        1 << 1,
+        3,
+        5,
+        8,
+        0xfe, // prefix fe00::/8 in domain 5
+    ])
+    .unwrap();
+
+    assert_eq!(data.prefixes.len(), 2);
+    assert_eq!(data.prefixes[0].domain_id, 0);
+    assert_eq!(data.prefixes[0].prefix_bit_length, 16);
+    assert_eq!(data.prefixes[0].prefix, [0xfd, 0x00]);
+    assert_eq!(data.prefixes[1].domain_id, 5);
+    assert_eq!(data.prefixes[1].prefix_bit_length, 8);
+    assert_eq!(data.prefixes[1].prefix, [0xfe]);
+}
+
+#[test]
 fn border_router_and_has_route_flags_decode_with_bit_precision() {
     use diag::NetworkData;
 
