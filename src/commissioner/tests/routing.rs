@@ -375,6 +375,38 @@ async fn proxied_dataset_changed_clears_the_mesh_local_prefix_cache() {
 }
 
 #[tokio::test]
+async fn unproxied_dataset_changed_clears_the_mesh_local_prefix_cache() {
+    // Same contract as the proxied case above, but for MGMT_DATASET_CHANGED
+    // arriving directly on the commissioner session rather than inside UDP_RX.
+    let script = ScriptedMeshcopTransport::new([
+        exchange(
+            CommissionerOperation::Petition,
+            [ScriptedResponse::petition_accept(0x1234)],
+        ),
+        exchange(
+            CommissionerOperation::GetActiveDataset,
+            [
+                ScriptedResponse::Raw(dataset_changed_notification(0x7003, false)),
+                ScriptedResponse::content(dataset_with_name("after").to_bytes().unwrap()),
+            ],
+        ),
+    ]);
+    let mut commissioner = scripted_commissioner(script, []).await;
+    commissioner.petition().await.unwrap();
+    assert!(commissioner.cached_mesh_local_prefix().is_some());
+
+    commissioner
+        .get_active_dataset(DatasetFlags::NETWORK_NAME)
+        .await
+        .unwrap();
+    assert_eq!(
+        commissioner.next_event().await.unwrap(),
+        Some(CommissionerEvent::DatasetChanged)
+    );
+    assert_eq!(commissioner.cached_mesh_local_prefix(), None);
+}
+
+#[tokio::test]
 async fn udp_rx_messages_for_other_ports_are_dropped() {
     let script = ScriptedMeshcopTransport::new([
         exchange(
