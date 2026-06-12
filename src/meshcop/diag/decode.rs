@@ -151,7 +151,11 @@ impl<'a> Iterator for NetworkDataTlvIter<'a> {
         }
         let ty = self.bytes[0] >> 1;
         let len = self.bytes[1] as usize;
-        if self.bytes.len() < 2 + len {
+        // Consume the header and value as shrinking slices rather than with
+        // index arithmetic: every TLV provably strips its two header bytes,
+        // so malformed lengths can only error, never stall the iterator.
+        let after_header = &self.bytes[2..];
+        if after_header.len() < len {
             self.bytes = &[];
             return Some((
                 Err(Error::Dataset(
@@ -160,8 +164,8 @@ impl<'a> Iterator for NetworkDataTlvIter<'a> {
                 &[],
             ));
         }
-        let value = &self.bytes[2..2 + len];
-        self.bytes = &self.bytes[2 + len..];
+        let value = &after_header[..len];
+        self.bytes = &after_header[len..];
         Some((Ok(ty), value))
     }
 }

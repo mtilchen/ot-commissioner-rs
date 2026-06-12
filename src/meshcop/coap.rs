@@ -208,23 +208,24 @@ impl CoapMessage {
         let code = CoapCode(bytes[1]);
         let message_id = u16::from_be_bytes([bytes[2], bytes[3]]);
         let token = bytes[4..4 + token_len].to_vec();
-        let mut idx = 4 + token_len;
         let mut last_number = 0u16;
         let mut options = Vec::new();
         let mut payload = Vec::new();
 
-        while idx < bytes.len() {
-            if bytes[idx] == 0xff {
-                payload.extend_from_slice(&bytes[idx + 1..]);
+        // Consume the option region as a shrinking slice rather than with
+        // index arithmetic: every iteration provably strips at least the
+        // header byte, so a malformed message can only error, never stall.
+        let mut rest = &bytes[4 + token_len..];
+        while let Some((&first, after_header)) = rest.split_first() {
+            if first == 0xff {
+                payload.extend_from_slice(after_header);
                 break;
             }
-            let first = bytes[idx];
-            idx += 1;
-            let (delta, used_delta) = decode_extended_nibble(first >> 4, &bytes[idx..])?;
-            idx += used_delta;
-            let (length, used_len) = decode_extended_nibble(first & 0x0f, &bytes[idx..])?;
-            idx += used_len;
-            if bytes.len() < idx + length as usize {
+            let (delta, used_delta) = decode_extended_nibble(first >> 4, after_header)?;
+            let after_delta = &after_header[used_delta..];
+            let (length, used_len) = decode_extended_nibble(first & 0x0f, after_delta)?;
+            let after_length = &after_delta[used_len..];
+            if after_length.len() < length as usize {
                 return Err(Error::Dataset("CoAP option value is truncated".to_string()));
             }
             last_number = last_number
@@ -232,9 +233,9 @@ impl CoapMessage {
                 .ok_or_else(|| Error::Dataset("CoAP option number overflow".to_string()))?;
             options.push(CoapOption {
                 number: last_number,
-                value: bytes[idx..idx + length as usize].to_vec(),
+                value: after_length[..length as usize].to_vec(),
             });
-            idx += length as usize;
+            rest = &after_length[length as usize..];
         }
 
         Ok(Self {
