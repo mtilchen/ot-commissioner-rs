@@ -7,7 +7,7 @@
 mod client;
 mod config;
 #[cfg(test)]
-mod harness;
+pub(crate) mod harness;
 mod joiner;
 mod types;
 
