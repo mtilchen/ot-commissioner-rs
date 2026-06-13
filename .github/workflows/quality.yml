@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust
         run: |
@@ -41,7 +41,7 @@ jobs:
           rustup component add rustfmt clippy
 
       - name: Cache Cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -65,7 +65,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust
         run: |
@@ -73,7 +73,7 @@ jobs:
           rustup default stable
 
       - name: Cache Cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -109,7 +109,7 @@ jobs:
       COVERAGE_FAIL_UNDER_FUNCTIONS: 75
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust
         run: |
@@ -118,7 +118,7 @@ jobs:
           rustup component add llvm-tools-preview
 
       - name: Cache Cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -140,7 +140,7 @@ jobs:
         run: tools/ci/coverage.sh
 
       - name: Upload coverage artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: coverage
@@ -164,7 +164,7 @@ jobs:
       CARGO_MUTANTS_FILES: ${{ vars.CARGO_MUTANTS_FILES }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust
         run: |
@@ -172,7 +172,7 @@ jobs:
           rustup default stable
 
       - name: Cache Cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -194,7 +194,7 @@ jobs:
         run: tools/ci/mutants.sh "${MUTANTS_SCOPE}"
 
       - name: Upload mutation artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: cargo-mutants

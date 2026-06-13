@@ -34,7 +34,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust
         run: |
@@ -42,7 +42,7 @@ jobs:
           rustup default stable
 
       - name: Cache Cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -54,7 +54,7 @@ jobs:
             cargo-${{ runner.os }}-
 
       - name: Cache OpenThread build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /tmp/ot-rs-interop/openthread
           key: openthread-${{ runner.os }}-${{ hashFiles('tools/ci/interop.sh') }}
@@ -68,7 +68,7 @@ jobs:
         run: tools/ci/interop.sh
 
       - name: Upload daemon log
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: ot-daemon-log
