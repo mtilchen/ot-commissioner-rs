@@ -6,9 +6,6 @@ name: Interop
 # The weekly run catches drift against OpenThread even when this repo is
 # quiet. Bumping the pinned OpenThread ref is a deliberate one-line change in
 # tools/ci/interop.sh (OT_INTEROP_OPENTHREAD_REF).
-#
-# Follow-up planned: a joiner leg (simulated ot-cli-ftd node joining via this
-# commissioner's relay/JOIN_FIN/KEK path).
 
 on:
   pull_request:

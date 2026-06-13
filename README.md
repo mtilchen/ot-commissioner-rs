@@ -114,8 +114,11 @@ process.
   RCP) via [interop.yml](.github/workflows/interop.yml): the full DTLS 1.2 +
   EC J-PAKE handshake, petition and keep-alive, a full active-dataset
   comparison, and a UDP-proxied MGMT_COMMISSIONER_GET against the live
-  leader. A weekly scheduled run catches drift against OpenThread even when
-  this repo is quiet.
+  leader — then a complete joiner commissioning of a simulated OpenThread
+  node: steering data by EUI-64, the joiner DTLS session over the relay
+  (PSKd), JOIN_FIN, KEK entrustment, and the joiner attaching to the
+  network. A weekly scheduled run catches drift against OpenThread even
+  when this repo is quiet.
 - **Coverage gates (CI-enforced).** Minimum 80% line, 80% region, and 75%
   function coverage via `cargo-llvm-cov`.
 - **Mutation testing.** `cargo-mutants` runs against the high-risk protocol

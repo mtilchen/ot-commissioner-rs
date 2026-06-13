@@ -35,6 +35,7 @@ readonly SECURITY_POLICY=(672 onrc)
 ot_daemon="${openthread_dir}/build/posix/src/posix/ot-daemon"
 ot_ctl="${openthread_dir}/build/posix/src/posix/ot-ctl"
 ot_rcp="${openthread_dir}/build/simulation/examples/apps/ncp/ot-rcp"
+ot_cli_ftd="${openthread_dir}/build/simulation/examples/apps/cli/ot-cli-ftd"
 
 die() {
     echo "*** ERROR: $*" >&2
@@ -76,7 +77,7 @@ wait_for() {
 }
 
 build_openthread() {
-    if [[ -x "${ot_daemon}" && -x "${ot_rcp}" ]]; then
+    if [[ -x "${ot_daemon}" && -x "${ot_rcp}" && -x "${ot_cli_ftd}" ]]; then
         echo "Using cached OpenThread build at ${openthread_dir}"
         return
     fi
@@ -85,10 +86,11 @@ build_openthread() {
         --recurse-submodules --shallow-submodules \
         https://github.com/openthread/openthread.git "${openthread_dir}"
     cd "${openthread_dir}"
-    # The simulated RCP that stands in for an 802.15.4 radio.
-    OT_CMAKE_NINJA_TARGET="ot-rcp" \
-        ./script/cmake-build simulation -DOT_FTD=OFF -DOT_MTD=OFF \
-        -DOT_APP_CLI=OFF -DOT_APP_NCP=OFF -DBUILD_TESTING=OFF
+    # The simulated RCP that stands in for an 802.15.4 radio, plus an FTD CLI
+    # node that acts as the joiner on the same simulated radio bus.
+    OT_CMAKE_NINJA_TARGET="ot-rcp ot-cli-ftd" \
+        ./script/cmake-build simulation -DOT_MTD=OFF \
+        -DOT_APP_NCP=OFF -DBUILD_TESTING=OFF
     # The posix border router; OT_PLATFORM_UDP puts the border agent on a
     # real host UDP socket so the commissioner can reach it over loopback.
     OT_CMAKE_NINJA_TARGET="ot-daemon ot-ctl" \
@@ -143,9 +145,13 @@ run_interop_test() {
     [[ -n "${dataset_hex}" ]] || die "could not read the active dataset"
 
     echo "Border agent on port ${ba_port}; commissioning..."
+    # Serial test threads: both tests petition the same border agent, and a
+    # border agent serves one active commissioner at a time.
     OT_COMMISSIONER_INTEROP_BORDER_AGENT="[::1]:${ba_port}" \
         OT_COMMISSIONER_INTEROP_DATASET_HEX="${dataset_hex}" \
-        cargo test --test interop_openthread --all-features -- --ignored --nocapture
+        OT_COMMISSIONER_INTEROP_JOINER_CLI="${ot_cli_ftd}" \
+        cargo test --test interop_openthread --all-features -- \
+        --ignored --nocapture --test-threads=1
 }
 
 write_summary() {
@@ -160,7 +166,10 @@ write_summary() {
             echo
             echo "Covered: DTLS 1.2 + EC J-PAKE handshake (PSKc), COMM_PET, COMM_KA,"
             echo "MGMT_ACTIVE_GET (full dataset compare), MGMT_COMMISSIONER_GET via"
-            echo "the UDP_TX/UDP_RX proxy to the leader ALOC, resign."
+            echo "the UDP_TX/UDP_RX proxy to the leader ALOC, resign; plus a full"
+            echo "joiner commissioning of a simulated ot-cli-ftd node: steering data"
+            echo "by EUI-64, the joiner DTLS session over RLY_RX/RLY_TX (PSKd),"
+            echo "JOIN_FIN, KEK entrustment, and the joiner attaching as a child."
         } >>"${GITHUB_STEP_SUMMARY}"
     fi
 }
