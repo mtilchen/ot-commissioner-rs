@@ -41,6 +41,22 @@ die() {
     exit 1
 }
 
+# Runs a phase with its output teed to a log; on failure, surfaces the log
+# tail as a GitHub error annotation (annotations stay readable on the run
+# page even where full step logs need elevated access).
+phase() {
+    local name=$1
+    shift
+    local log="${runtime_dir}/${name}.log"
+    echo "=== phase: ${name} ==="
+    if ! "$@" 2>&1 | tee "${log}"; then
+        if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+            echo "::error title=interop phase '${name}' failed::$(tail -c 800 "${log}" | tr '\n' ' ')"
+        fi
+        die "phase '${name}' failed (full output above, tail in ${log})"
+    fi
+}
+
 ctl() {
     sudo timeout -k 5 10 "${ot_ctl}" "$@"
 }
@@ -66,6 +82,7 @@ build_openthread() {
     fi
     rm -rf "${openthread_dir}"
     git clone --depth 1 --branch "${openthread_ref}" \
+        --recurse-submodules --shallow-submodules \
         https://github.com/openthread/openthread.git "${openthread_dir}"
     cd "${openthread_dir}"
     # The simulated RCP that stands in for an 802.15.4 radio.
@@ -117,6 +134,9 @@ form_network() {
 
 run_interop_test() {
     local ba_port dataset_hex
+    # Recent OpenThread versions gate the border agent behind a runtime
+    # toggle; older ones lack the subcommand and auto-start it instead.
+    ctl ba enable || true
     ba_port="$(ctl ba port | grep -o '[0-9]\+' | head -1)"
     [[ -n "${ba_port}" ]] || die "could not read the border agent port"
     dataset_hex="$(ctl dataset active -x | grep -o '[0-9a-fA-F]\{16,\}' | head -1)"
@@ -161,11 +181,11 @@ main() {
     mkdir -p "${runtime_dir}"
     trap cleanup EXIT
 
-    build_openthread
+    phase build-openthread build_openthread
     stop_daemon
-    start_daemon
-    form_network
-    run_interop_test
+    phase start-daemon start_daemon
+    phase form-network form_network
+    phase interop-test run_interop_test
     write_summary "✅ passed"
 }
 
