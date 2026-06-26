@@ -233,6 +233,12 @@ fn ecjpake_party_debug_redacts_secret_scalars() {
     assert!(rendered.contains("<redacted>"));
 }
 
+/// Golden vector: a cross-implementation conformance check against mbedTLS
+/// (the canonical EC-JPAKE-for-TLS implementation). The deterministic scalars
+/// are fed to both implementations; the round messages and expected premaster
+/// secret below are what mbedTLS produces for them (via the harnesses in
+/// `tools/`). This is not a verbatim entry from mbedTLS's own test suite.
+/// Provenance and regeneration: docs/VECTORS.md.
 #[test]
 fn mbedtls_reference_handshake_derives_expected_premaster_secret() {
     let client = EcJpakeParty::new_thread_with_scalars(
