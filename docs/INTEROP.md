@@ -1,0 +1,85 @@
+# Interoperability
+
+What `ot-commissioner-rs` has been verified to interoperate with, and — just as
+importantly — at what level of assurance. The rows are deliberately separated by
+**how** each was verified, because "passes on every CI run" and "the author ran
+it once against a device on the bench" are very different claims:
+
+- **Continuous** — runs automatically on every change in CI; reproducible by
+  anyone from this repo. The strongest claim.
+- **Manual** — gated `#[ignore]` tests the author runs by hand against physical
+  hardware. Point-in-time, not continuously re-verified, hardware-specific.
+- **Vector** — primitive-level golden vectors whose expected values come from an
+  independent implementation. Cross-implementation conformance, not device
+  interop; runs on every build. Catalogued in [VECTORS.md](VECTORS.md).
+
+## Matrix
+
+| Peer | Roles exercised | Assurance | Where |
+| --- | --- | --- | --- |
+| **OpenThread** `v2026.06.0` — posix `ot-daemon` (border agent + leader) + simulated RCP | Commissioner **and** joiner, end to end | Continuous (every PR/push + weekly) | [interop.yml](../.github/workflows/interop.yml), [tools/ci/interop.sh](../tools/ci/interop.sh) |
+| **Physical Thread border router** (Espressif ESP-Matter) | Commissioner session + dataset/commissioner-dataset reads | Manual, author-run, point-in-time | [tests/live_border_router.rs](../tests/live_border_router.rs) |
+| **mbedTLS / OpenSSL / Thread spec / OpenThread** | Crypto primitives + key schedule | Vector (every build) | [VECTORS.md](VECTORS.md) |
+
+## OpenThread — continuous, full role coverage
+
+The [interop gate](../.github/workflows/interop.yml) builds OpenThread at a
+pinned release (a posix `ot-daemon` border router driven by a simulated RCP over
+forkpty — the arrangement the C++ `ot-commissioner` integration suite uses),
+forms a Thread network, and runs two gated tests against the live border agent
+on loopback:
+
+- **Commissioner session:** DTLS 1.2 + EC J-PAKE handshake (PSKc), `COMM_PET`
+  petition, `COMM_KA` keep-alive, `MGMT_ACTIVE_GET` with a full, order-insensitive
+  active-dataset comparison against the leader's own view, `MGMT_COMMISSIONER_GET`
+  routed through the UDP_TX/UDP_RX proxy to the leader ALOC, and a clean resign.
+- **Joiner commissioning:** advertise a specific joiner by EUI-64 in the steering
+  data (exercising the SHA-256 joiner-ID derivation and Bloom filter against
+  OpenThread's own computation), then drive a real simulated `ot-cli-ftd` node
+  through the joiner DTLS session over `RLY_RX`/`RLY_TX` (PSKd), `JOIN_FIN`, the
+  KEK hand-off to the joiner router, and finally watch it attach to the network.
+
+A weekly scheduled run catches drift against OpenThread even when this repo is
+quiet. Reproduce locally on Linux with `tools/ci/interop.sh`. The pinned
+OpenThread ref is the one-line `OT_INTEROP_OPENTHREAD_REF` in that script.
+
+## Physical border router — manual, read-only
+
+`tests/live_border_router.rs` holds `#[ignore]` tests that run against a real
+Thread border agent (an Espressif ESP-Matter border router on the author's
+bench), selected via `OT_COMMISSIONER_BORDER_AGENT` with the network dataset in
+`ESP_MATTER_TEST_THREAD_DATASET_HEX`. They have been run by hand and exercise the
+full DTLS + EC J-PAKE handshake, petition, keep-alive, active-dataset read and
+comparison, commissioner-dataset read, border-agent locator, and clean resign.
+
+Scope and caveats:
+
+- This is **point-in-time** validation against specific firmware, not a
+  continuously re-verified claim. It is not run in CI (it needs physical
+  hardware and real credentials).
+- Coverage here is **read-only / inspection**. Mutating operations
+  (`*dataset set`, joiner commissioning, MLR, announce, PAN-ID query, energy
+  scan) are **not** part of the verified physical-hardware path yet — joiner
+  commissioning end to end is covered against OpenThread (above), not against
+  this hardware.
+- The tests never print PSKc, network keys, or dataset values; mutating live
+  operations are additionally gated behind `OT_COMMISSIONER_MUTATE_OK=1`.
+
+## Cross-implementation vectors — every build
+
+Primitive-level conformance against independent implementations: PSKc (Thread
+spec), TLS 1.2 PRF and Finished `verify_data` and the key schedule and
+AES-128-CCM-8 record protection (OpenSSL), the EC J-PAKE premaster secret
+(mbedTLS), and joiner-ID derivation (OpenThread). These run on every build and
+are catalogued — with provenance and regeneration commands — in
+[VECTORS.md](VECTORS.md).
+
+## Gaps
+
+- **Joiner commissioning against physical hardware** — covered against
+  OpenThread, not yet against a bench border router.
+- **Mutating operations against physical hardware** — see the read-only caveat
+  above.
+- **Additional stacks** — only OpenThread is covered continuously. Other
+  certified Thread stacks (other silicon vendors, other border-router firmware)
+  are untested; contributions adding rows here are welcome.
