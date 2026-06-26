@@ -30,8 +30,9 @@ pub fn pskc_from_active_dataset(dataset: &Dataset) -> Result<[u8; MAX_PSKC_LEN]>
 
 /// Generates PSKc using Thread's PBKDF2-AES-CMAC-PRF-128 construction.
 ///
-/// The test vector in this module is from the Thread 1.2 specification and is
-/// also carried by OpenThread's commissioner tests.
+/// Pinned to the worked example in Thread 1.4.0 §8.4.1.2.1 "Derivation of
+/// PSKc" (carried unchanged from Thread 1.2; also exercised by OpenThread).
+/// See `docs/VECTORS.md`.
 pub fn generate_pskc(
     passphrase: &str,
     network_name: &str,
@@ -178,6 +179,8 @@ mod tests {
     use super::*;
     use crate::dataset::Dataset;
 
+    /// Golden vector: Thread 1.4.0 §8.4.1.2.1 "Test Vector for Derivation of
+    /// PSKc". Provenance and regeneration: docs/VECTORS.md.
     #[test]
     fn generates_thread_pskc_test_vector() {
         let pskc = generate_pskc(
@@ -259,6 +262,16 @@ mod tests {
         // the OR semantics, not an AND that would zero the other digest bits.
         let id = compute_joiner_id(0x0011_2233_4455_6677);
         assert_eq!(id, [0xd3, 0xa5, 0xf9, 0x98, 0xfa, 0x6e, 0xd8, 0x2d]);
+    }
+
+    /// Golden vector: joiner ID derivation matches OpenThread. The simulation
+    /// node `ot-cli-ftd 2` (factory EUI-64 18b4300000000002) reports joiner ID
+    /// d65e64fa83f81cf7 via its `joiner id` command, which this crate must
+    /// reproduce. Provenance: docs/VECTORS.md.
+    #[test]
+    fn compute_joiner_id_matches_openthread() {
+        let id = compute_joiner_id(0x18b4_3000_0000_0002);
+        assert_eq!(id, [0xd6, 0x5e, 0x64, 0xfa, 0x83, 0xf8, 0x1c, 0xf7]);
     }
 
     #[test]

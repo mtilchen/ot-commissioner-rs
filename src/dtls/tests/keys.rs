@@ -1,5 +1,7 @@
 use super::*;
 
+/// Golden vector: the TLS 1.2 PRF (P_SHA-256, RFC 5246 §5) against OpenSSL's
+/// `TLS1-PRF` KDF. Provenance and regeneration: docs/VECTORS.md.
 #[test]
 fn tls12_prf_matches_openssl_tls1_prf_vector() {
     let secret = hex::decode("0102030405060708090a0b0c0d0e0f10").unwrap();
@@ -12,6 +14,92 @@ fn tls12_prf_matches_openssl_tls1_prf_vector() {
     .unwrap();
 
     assert_eq!(actual, expected);
+}
+
+/// Golden vector: the full key-schedule chain seeded by the mbedTLS EC J-PAKE
+/// reference premaster secret (`crypto::ecjpake::tests`), with the master
+/// secret and key block computed independently by OpenSSL 3.6.2
+/// (`openssl kdf ... TLS1-PRF`) and the KEK by SHA-256 over that key block.
+/// Provenance and regeneration commands: docs/VECTORS.md.
+#[test]
+fn key_schedule_chain_matches_openssl_tls1_prf_vectors() {
+    let pre_master_secret =
+        hex::decode("f3d47f599844db92a569bbe7981e39d931fd743bf22e98f9b438f719d3c4f351").unwrap();
+    let client_random: [u8; 32] =
+        hex::decode("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+            .unwrap()
+            .try_into()
+            .unwrap();
+    let server_random: [u8; 32] =
+        hex::decode("202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f")
+            .unwrap()
+            .try_into()
+            .unwrap();
+
+    let master_secret =
+        derive_master_secret(&pre_master_secret, &client_random, &server_random).unwrap();
+    assert_eq!(
+        hex::encode(master_secret),
+        concat!(
+            "e5a288cfe36f82c04a92a820e8e0c768e1d48b9740c8d018f14d9a2b1f7f3e33",
+            "30b1a741f2daf5d156144d8170befaa8",
+        )
+    );
+
+    let key_block =
+        derive_aes_128_ccm_8_key_block(&master_secret, &client_random, &server_random).unwrap();
+    assert_eq!(
+        hex::encode(key_block.client_write_key),
+        "710b83fb8d70267ead91effdd7eb79fe"
+    );
+    assert_eq!(
+        hex::encode(key_block.server_write_key),
+        "bec55f8c6af131a377e62e471ca5a38c"
+    );
+    assert_eq!(hex::encode(key_block.client_write_iv), "da24a9d2");
+    assert_eq!(hex::encode(key_block.server_write_iv), "95369b74");
+
+    let kek = derive_joiner_router_kek(&master_secret, &client_random, &server_random).unwrap();
+    assert_eq!(hex::encode(kek), "adf385fd8aa5cdbd6fe31939ce81d773");
+}
+
+/// Golden vector: one protected DTLS 1.2 application-data record, with the
+/// AES-128-CCM-8 ciphertext computed independently by OpenSSL (via
+/// pyca/cryptography `AESCCM(tag_length=8)`) over this crate's RFC 6655
+/// nonce and additional-data layout. Provenance: docs/VECTORS.md.
+#[test]
+fn record_protection_matches_openssl_aes_ccm_8_vector() {
+    let key = RecordProtectionKey::new(
+        hex::decode("000102030405060708090a0b0c0d0e0f")
+            .unwrap()
+            .try_into()
+            .unwrap(),
+    );
+    let fixed_iv: [u8; 4] = hex::decode("a0a1a2a3").unwrap().try_into().unwrap();
+    let plaintext = b"thread interop golden vector";
+
+    let record = protect_aes_128_ccm_8_record(
+        ContentType::ApplicationData,
+        1,
+        7,
+        key.clone(),
+        &fixed_iv,
+        plaintext,
+    )
+    .unwrap();
+
+    // Explicit nonce (epoch || 48-bit sequence) followed by ciphertext + tag.
+    assert_eq!(
+        hex::encode(&record.payload),
+        concat!(
+            "0001000000000007",
+            "29d63f60549b8fd72853642698a75d5c84d1f291ab3d5928389398364042583c86865c8f",
+        )
+    );
+    assert_eq!(
+        open_aes_128_ccm_8_record(&record, key, &fixed_iv).unwrap(),
+        plaintext
+    );
 }
 
 #[test]
@@ -266,6 +354,9 @@ fn handshake_record_steps_reject_wrong_message_types() {
     );
 }
 
+/// Golden vector: the Finished `verify_data` (RFC 5246 §7.4.9) — PRF over this
+/// crate's DTLS handshake transcript framing — against OpenSSL's `TLS1-PRF`.
+/// Provenance and regeneration: docs/VECTORS.md.
 #[test]
 fn finished_verify_data_matches_openssl_tls1_prf_vector() {
     let mut transcript = HandshakeTranscript::new();
