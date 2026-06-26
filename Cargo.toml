@@ -15,30 +15,39 @@ ot-commissioner-cxx = []
 cli = ["dep:serde", "dep:serde_json"]
 
 [dependencies]
+# RustCrypto symmetric/hash/RNG stack. These are intentionally held one major
+# behind their newest releases (aes 0.9, cmac 0.8, hmac 0.13, sha2 0.11,
+# rand_core 0.10): those are the new RustCrypto generation built on
+# `digest 0.11` / `cipher 0.5` / the reworked `rand_core` traits, which cannot
+# interoperate with the only *stable* releases of `p256` (0.13.2) and `ccm`
+# (0.5.0) that this crate also depends on. Moving them requires p256 0.14
+# (currently only release candidates). Bump these together with p256 once its
+# new generation ships stable.
 aes = "0.8.4"
-ccm = { version = "0.5", features = ["alloc"] }
+ccm = { version = "0.5.0", features = ["alloc"] }
 cmac = "0.7.2"
-hex = "0.4"
 hmac = "0.12"
 p256 = { version = "0.13.2", default-features = false, features = ["arithmetic"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 sha2 = "0.10"
-subtle = "2"
-thiserror = "2"
-tokio = { version = "1.48", features = ["net", "time", "macros", "rt-multi-thread"] }
-zeroize = { version = "1.8", features = ["derive"] }
+# Latest-stable, no generation coupling.
+hex = "0.4.3"
+subtle = "2.6.1"
+thiserror = "2.0.18"
+tokio = { version = "1.52.3", features = ["net", "time", "macros", "rt-multi-thread"] }
+zeroize = { version = "1.9.0", features = ["derive"] }
 # CLI-only, pulled in solely by the `cli` feature.
-serde = { version = "1", features = ["derive"], optional = true }
-serde_json = { version = "1", optional = true }
+serde = { version = "1.0.228", features = ["derive"], optional = true }
+serde_json = { version = "1.0.150", optional = true }
 
 [dev-dependencies]
-argh = "0.1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+argh = "0.1.19"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
 # test-util enables tokio::test(start_paused) so event-pump deadlines elapse
 # instantly in deterministic CLI tests; process/io-util let the interop test
 # drive a simulated OpenThread joiner CLI as a child process.
-tokio = { version = "1.48", features = ["test-util", "process", "io-util"] }
+tokio = { version = "1.52.3", features = ["test-util", "process", "io-util"] }
 
 [[bin]]
 name = "ot-commissioner-rs"
