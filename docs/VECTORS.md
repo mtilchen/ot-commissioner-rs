@@ -171,6 +171,50 @@ border agent (and a simulated joiner) on every change.
 
 ---
 
+## Steering data — CRC-16 Bloom filter (Thread §8.4.4.3)
+
+- **Proves:** the steering-data Bloom filter matches the Thread specification's
+  algorithm, so a joiner this crate advertises is the one a real Thread device
+  computes for itself. (The end-to-end counterpart — a real OpenThread joiner
+  discovering itself in our steering data and attaching — is the joiner leg of
+  the [interop gate](../.github/workflows/interop.yml).)
+- **Source:** Thread 1.4.0 Specification **§8.4.4.3 "Bloom Filters"**. The spec
+  defines the algorithm (k = 2; hash1 = CRC16-CCITT `0x1021`, hash2 =
+  CRC16-ANSI `0x8005`; `bloom_filter |= 1 << (hashfn(id) % m)`; `m` = 128;
+  big-endian bit mask) but provides **no worked numeric example**, so the
+  expected bytes are derived independently from that algorithm. The two CRC
+  polynomials are independently anchored by their published catalog check
+  values (CRC-16/XMODEM `0x31c3`, CRC-16/BUYPASS `0xfee8` over `123456789`),
+  asserted in `crc16_matches_known_catalog_check_values`.
+- **Inputs / expected:**
+  - joiner ID `d65e64fa83f81cf7` (the OpenThread joiner above): CRC16-CCITT
+    % 128 = 1, CRC16-ANSI % 128 = 4 → bits 1 and 4 of the final byte →
+    `00000000000000000000000000000012`.
+  - bytes `0102030405060708`: bit 44, bit 14 →
+    `00000000000000000000100000004000`.
+- **Regenerate:**
+  ```python
+  def crc16(poly, data):
+      crc = 0
+      for b in data:
+          crc ^= b << 8
+          for _ in range(8):
+              crc = ((crc << 1) ^ poly) & 0xffff if crc & 0x8000 else (crc << 1) & 0xffff
+      return crc
+  def steering(jid, length=16):
+      m, out = length * 8, bytearray(length)
+      for poly in (0x1021, 0x8005):           # CCITT, ANSI
+          bit = crc16(poly, jid) % m
+          out[length - 1 - bit // 8] |= 1 << (bit % 8)   # big-endian mask
+      return out.hex()
+  print(steering(bytes.fromhex("d65e64fa83f81cf7")))   # ...0012
+  ```
+- **Tests:** `src/crypto/pskc.rs` →
+  `compute_bloom_filter_matches_spec_for_openthread_joiner`,
+  `compute_bloom_filter_sets_two_crc_indexed_bits`.
+
+---
+
 ## DTLS record protection — AES-128-CCM-8 (RFC 6655)
 
 - **Proves:** a protected DTLS 1.2 application-data record's ciphertext and tag
@@ -204,8 +248,6 @@ border agent (and a simulated joiner) on every change.
 
 These are validated by self-consistency today; an external golden is planned:
 
-- **Steering data** (CRC-16 Bloom filter). Self-constructed test data only; no
-  external-reference vector yet.
 - **Raw AES-128-CCM-8 KAT.** The record vector above checks the full record
   layout; a NIST CCM known-answer test for the bare primitive would add a
   layout-independent check.

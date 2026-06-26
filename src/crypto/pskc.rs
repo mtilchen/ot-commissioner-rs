@@ -231,6 +231,11 @@ mod tests {
         assert_eq!(out[1..14], [0u8; 13]);
     }
 
+    /// Golden vector: the steering-data Bloom filter follows Thread 1.4.0
+    /// §8.4.4.3. Both expected bit positions are derived independently from the
+    /// spec algorithm (CRC16-CCITT 0x1021 % 128 = 44, CRC16-ANSI 0x8005 % 128 =
+    /// 14, big-endian mask), anchored by the catalog CRC checks in
+    /// `crc16_matches_known_catalog_check_values`. Provenance: docs/VECTORS.md.
     #[test]
     fn compute_bloom_filter_sets_two_crc_indexed_bits() {
         let mut out = [0u8; MAX_STEERING_DATA_LEN];
@@ -242,6 +247,24 @@ mod tests {
             [
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00,
                 0x40, 0x00,
+            ]
+        );
+    }
+
+    /// Golden vector: steering data for the OpenThread joiner ID
+    /// d65e64fa83f81cf7 per Thread 1.4.0 §8.4.4.3. Independently derived bits
+    /// (CRC16-CCITT % 128 = 1, CRC16-ANSI % 128 = 4) set bits 1 and 4 of the
+    /// final byte (0x12), tying steering data to the same joiner used in
+    /// `compute_joiner_id_matches_openthread`. Provenance: docs/VECTORS.md.
+    #[test]
+    fn compute_bloom_filter_matches_spec_for_openthread_joiner() {
+        let mut out = [0u8; MAX_STEERING_DATA_LEN];
+        compute_bloom_filter(&mut out, &[0xd6, 0x5e, 0x64, 0xfa, 0x83, 0xf8, 0x1c, 0xf7]);
+        assert_eq!(
+            out,
+            [
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x12,
             ]
         );
     }
