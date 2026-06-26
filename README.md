@@ -102,7 +102,7 @@ process.
 - **Secret hygiene.** PSKc, J-PAKE scalars, datasets, and record-protection keys
   are redacted in `Debug` and zeroized on drop; constant-time primitives
   (`subtle` / RustCrypto) are used where applicable.
-- **Tests.** 216 deterministic tests plus gated live border-router tests,
+- **Tests.** 220 deterministic tests plus gated live border-router tests,
   including in-memory DTLS client-against-server handshakes, an in-process
   loopback DTLS server exercising the Tokio session driver, and a complete
   fake-joiner commissioning flow. Testing policy: no public commissioner
@@ -118,7 +118,8 @@ process.
   node: steering data by EUI-64, the joiner DTLS session over the relay
   (PSKd), JOIN_FIN, KEK entrustment, and the joiner attaching to the
   network. A weekly scheduled run catches drift against OpenThread even
-  when this repo is quiet.
+  when this repo is quiet. The full interoperability matrix — and what is
+  verified continuously versus by hand — is in [docs/INTEROP.md](docs/INTEROP.md).
 - **Coverage gates (CI-enforced).** Minimum 80% line, 80% region, and 75%
   function coverage via `cargo-llvm-cov`.
 - **Mutation testing.** `cargo-mutants` runs against the high-risk protocol
