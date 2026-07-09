@@ -81,6 +81,21 @@ fn static_joiner_handler_reenable_replaces_the_pskd() {
 }
 
 #[test]
+fn static_joiner_handler_debug_redacts_every_pskd() {
+    let joiner_id = [0x42; 8];
+    let mut handler = StaticJoinerHandler::new();
+    handler.enable_all("wildcard-secret");
+    handler.enable_joiner_id(joiner_id, "joiner-secret");
+
+    let debug = format!("{handler:?}");
+    assert!(debug.contains("<redacted>"));
+    assert!(debug.contains("enabled_joiner_count: 1"));
+    assert!(!debug.contains("wildcard-secret"));
+    assert!(!debug.contains("joiner-secret"));
+    assert!(!debug.contains(&hex::encode(joiner_id)));
+}
+
+#[test]
 fn joiner_handler_default_callbacks_accept_and_ignore() {
     #[derive(Debug)]
     struct DefaultsOnly;

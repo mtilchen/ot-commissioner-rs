@@ -1,5 +1,7 @@
 //! Thread operational dataset TLV support.
 
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
+
 use crate::{
     Result,
     error::Error,
@@ -32,9 +34,17 @@ pub const TLV_DELAY_TIMER: u8 = 0x34;
 pub const TLV_CHANNEL_MASK: u8 = 0x35;
 
 /// A generic Thread dataset preserving all TLVs in wire order.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct Dataset {
     tlvs: TlvSet,
+}
+
+impl core::fmt::Debug for Dataset {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Dataset")
+            .field("tlvs", &"<redacted>")
+            .finish()
+    }
 }
 
 /// Active operational dataset.
@@ -53,7 +63,8 @@ impl Dataset {
 
     /// Parses a hex-encoded Thread dataset.
     pub fn from_hex(hex: impl AsRef<[u8]>) -> Result<Self> {
-        Self::from_bytes(&hex::decode(hex)?)
+        let bytes = Zeroizing::new(hex::decode(hex)?);
+        Self::from_bytes(&bytes)
     }
 
     /// Returns all TLVs in wire order.
@@ -68,7 +79,8 @@ impl Dataset {
 
     /// Encodes this dataset as lowercase hex.
     pub fn to_hex(&self) -> Result<String> {
-        Ok(hex::encode(self.to_bytes()?))
+        let bytes = Zeroizing::new(self.to_bytes()?);
+        Ok(hex::encode(bytes.as_slice()))
     }
 
     /// Returns the last raw value for a TLV type.
@@ -78,12 +90,20 @@ impl Dataset {
 
     /// Sets a TLV value, removing previous values of the same type.
     pub fn set_raw(&mut self, ty: u8, value: impl Into<Vec<u8>>) {
-        self.tlvs.set_last(ty, value);
+        self.remove_all(ty);
+        self.tlvs.push(TlvEntry::new(ty, value));
     }
 
     /// Removes every TLV of the given type.
     pub fn remove_all(&mut self, ty: u8) {
-        self.tlvs.entries_mut().retain(|entry| entry.ty != ty);
+        self.tlvs.entries_mut().retain_mut(|entry| {
+            if entry.ty == ty {
+                entry.zeroize();
+                false
+            } else {
+                true
+            }
+        });
     }
 
     /// Returns the commissioner PSKc, if present.
@@ -459,6 +479,39 @@ mod tests {
         assert_eq!(dataset.pskc().unwrap().len(), 16);
         assert_eq!(dataset.entries().len(), 10);
         assert_eq!(dataset.to_hex().unwrap(), STITCH_ACTIVE_DATASET);
+    }
+
+    #[test]
+    fn debug_redacts_all_known_and_unknown_tlv_values() {
+        let mut dataset = Dataset::default();
+        dataset.set_raw(TLV_PSKC, b"commissioner-secret".to_vec());
+        dataset.set_raw(TLV_NETWORK_KEY, b"network-secret".to_vec());
+        dataset.set_raw(0xfe, b"unknown-secret".to_vec());
+
+        let debug = format!("{dataset:?}");
+        assert_eq!(debug, "Dataset { tlvs: \"<redacted>\" }");
+        assert!(!debug.contains("commissioner-secret"));
+        assert!(!debug.contains("network-secret"));
+        assert!(!debug.contains("unknown-secret"));
+    }
+
+    #[test]
+    fn zeroize_clears_owned_tlvs_without_affecting_clones() {
+        fn assert_zeroize_on_drop<T: ZeroizeOnDrop>() {}
+
+        assert_zeroize_on_drop::<Dataset>();
+        let mut dataset = Dataset::default();
+        dataset.set_raw(TLV_PSKC, b"commissioner-secret".to_vec());
+        dataset.set_raw(0xfe, b"unknown-secret".to_vec());
+        let mut cloned = dataset.clone();
+
+        dataset.zeroize();
+        assert!(dataset.entries().is_empty());
+        assert_eq!(cloned.pskc(), Some(b"commissioner-secret".as_slice()));
+        assert_eq!(cloned.raw(0xfe), Some(b"unknown-secret".as_slice()));
+
+        cloned.zeroize();
+        assert!(cloned.entries().is_empty());
     }
 
     #[test]

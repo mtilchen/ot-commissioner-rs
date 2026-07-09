@@ -3,7 +3,7 @@
 
 use std::time::Instant;
 
-use zeroize::Zeroize;
+use zeroize::Zeroizing;
 
 use crate::{
     Result,
@@ -58,22 +58,22 @@ impl Commissioner {
         if let std::collections::hash_map::Entry::Vacant(entry) =
             self.joiner_sessions.entry(joiner_id)
         {
-            let Some(mut pskd) = handler.joiner_pskd(&joiner_id) else {
+            let Some(pskd) = handler.joiner_pskd(&joiner_id) else {
                 commissioner_trace(format_args!(
                     "ignoring disabled joiner {}",
                     hex::encode(joiner_id)
                 ));
                 return Ok(());
             };
+            let pskd = Zeroizing::new(pskd);
             let session = JoinerSession::new(
                 joiner_iid,
                 joiner_udp_port,
                 joiner_router_locator,
-                &pskd,
+                pskd.as_str(),
                 now,
                 &mut rand_core::OsRng,
             );
-            pskd.zeroize();
             entry.insert(session);
         }
 

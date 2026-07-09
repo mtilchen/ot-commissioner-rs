@@ -1,6 +1,7 @@
 //! Lightweight Thread-style TLV parsing and serialization.
 
 use thiserror::Error;
+use zeroize::{Zeroize, Zeroizing};
 
 /// Maximum length encoded by the one-byte TLV length field.
 pub const MAX_STANDARD_TLV_LENGTH: usize = 254;
@@ -32,7 +33,7 @@ pub enum TlvError {
 }
 
 /// One parsed TLV entry.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Zeroize)]
 pub struct TlvEntry {
     /// Numeric TLV type.
     pub ty: u8,
@@ -58,7 +59,7 @@ impl TlvEntry {
 }
 
 /// Ordered TLV collection that preserves unknown TLVs and duplicate order.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Zeroize)]
 pub struct TlvSet {
     entries: Vec<TlvEntry>,
 }
@@ -66,7 +67,7 @@ pub struct TlvSet {
 impl TlvSet {
     /// Parses all TLVs in `bytes`.
     pub fn parse(bytes: &[u8]) -> Result<Self, TlvError> {
-        let mut entries = Vec::new();
+        let mut entries = Zeroizing::new(Vec::new());
         let mut remaining = bytes;
 
         while !remaining.is_empty() {
@@ -75,16 +76,18 @@ impl TlvSet {
             remaining = rest;
         }
 
-        Ok(Self { entries })
+        Ok(Self {
+            entries: core::mem::take(&mut *entries),
+        })
     }
 
     /// Encodes all entries in their current order.
     pub fn encode(&self) -> Result<Vec<u8>, TlvError> {
-        let mut out = Vec::new();
+        let mut out = Zeroizing::new(Vec::new());
         for entry in &self.entries {
             entry.encode(&mut out)?;
         }
-        Ok(out)
+        Ok(core::mem::take(&mut *out))
     }
 
     /// Returns all TLV entries in order.

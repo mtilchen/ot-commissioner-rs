@@ -16,7 +16,7 @@
 use std::time::{Duration, Instant};
 
 use rand_core::{CryptoRng, RngCore};
-use zeroize::Zeroize;
+use zeroize::Zeroizing;
 
 use crate::{
     Result,
@@ -90,10 +90,22 @@ pub trait JoinerHandler: Send + core::fmt::Debug {
 /// Mirrors the joiner enablement model of the C++ `CommissionerApp`: joiners
 /// can be enabled individually by joiner ID (or EUI-64) or collectively with
 /// a wildcard PSKd. Every JOIN_FIN.req from an enabled joiner is accepted.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct StaticJoinerHandler {
-    wildcard_pskd: Option<String>,
-    by_joiner_id: Vec<([u8; 8], String)>,
+    wildcard_pskd: Option<Zeroizing<String>>,
+    by_joiner_id: Vec<([u8; 8], Zeroizing<String>)>,
+}
+
+impl core::fmt::Debug for StaticJoinerHandler {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("StaticJoinerHandler")
+            .field(
+                "wildcard_pskd",
+                &self.wildcard_pskd.as_ref().map(|_| "<redacted>"),
+            )
+            .field("enabled_joiner_count", &self.by_joiner_id.len())
+            .finish()
+    }
 }
 
 impl StaticJoinerHandler {
@@ -104,13 +116,14 @@ impl StaticJoinerHandler {
 
     /// Enables every joiner with a shared PSKd.
     pub fn enable_all(&mut self, pskd: impl Into<String>) {
-        self.wildcard_pskd = Some(pskd.into());
+        self.wildcard_pskd = Some(Zeroizing::new(pskd.into()));
     }
 
     /// Enables one joiner by joiner ID.
     pub fn enable_joiner_id(&mut self, joiner_id: [u8; 8], pskd: impl Into<String>) {
         self.by_joiner_id.retain(|(id, _)| *id != joiner_id);
-        self.by_joiner_id.push((joiner_id, pskd.into()));
+        self.by_joiner_id
+            .push((joiner_id, Zeroizing::new(pskd.into())));
     }
 
     /// Enables one joiner by factory EUI-64.
@@ -129,24 +142,17 @@ impl StaticJoinerHandler {
     }
 }
 
-impl Drop for StaticJoinerHandler {
-    fn drop(&mut self) {
-        if let Some(pskd) = &mut self.wildcard_pskd {
-            pskd.zeroize();
-        }
-        for (_, pskd) in &mut self.by_joiner_id {
-            pskd.zeroize();
-        }
-    }
-}
-
 impl JoinerHandler for StaticJoinerHandler {
     fn joiner_pskd(&mut self, joiner_id: &[u8; 8]) -> Option<String> {
         self.by_joiner_id
             .iter()
             .find(|(id, _)| id == joiner_id)
-            .map(|(_, pskd)| pskd.clone())
-            .or_else(|| self.wildcard_pskd.clone())
+            .map(|(_, pskd)| pskd.as_str().to_owned())
+            .or_else(|| {
+                self.wildcard_pskd
+                    .as_ref()
+                    .map(|pskd| pskd.as_str().to_owned())
+            })
     }
 }
 
