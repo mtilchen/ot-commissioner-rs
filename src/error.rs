@@ -8,6 +8,10 @@ pub type Result<T> = core::result::Result<T, Error>;
 /// Errors returned by `ot-commissioner-rs`.
 #[derive(Debug, Error)]
 pub enum Error {
+    /// A commissioner or application configuration value is invalid.
+    #[error("configuration error: {0}")]
+    Configuration(&'static str),
+
     /// A TLV stream is malformed or incomplete.
     #[error("TLV error: {0}")]
     Tlv(#[from] crate::tlv::TlvError),

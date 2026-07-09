@@ -70,6 +70,7 @@ pub struct Commissioner {
 impl Commissioner {
     /// Connects a UDP socket to a Thread border agent.
     pub async fn connect(config: CommissionerConfig, border_agent: SocketAddr) -> Result<Self> {
+        config.validate()?;
         if config.enable_ccm {
             return Err(Error::Unsupported("CCM is reserved but deferred"));
         }
@@ -382,8 +383,14 @@ fn commissioner_trace(args: core::fmt::Arguments<'_>) {
     }
 }
 
-/// Timeout applied to a single DTLS receive during a MeshCoP exchange.
+/// Timeout applied to each DTLS receive and to an overall MeshCoP response wait.
 const MESHCOP_TIMEOUT: Duration = Duration::from_secs(5);
+/// Absolute DTLS handshake budget.
+///
+/// This leaves five seconds for the petition response after a replacement
+/// commissioner refreshes a session using the minimum 30-second keep-alive
+/// interval.
+const DTLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 
 fn result_code_from_meshcop_state(state: MeshcopState) -> ResultCode {
     match state {

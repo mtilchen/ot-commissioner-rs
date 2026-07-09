@@ -1,4 +1,7 @@
-use std::net::{Ipv6Addr, SocketAddr};
+use std::{
+    net::{Ipv6Addr, SocketAddr},
+    time::Duration,
+};
 
 use super::{
     harness::{ScriptedExchange, ScriptedMeshcopTransport, ScriptedResponse},

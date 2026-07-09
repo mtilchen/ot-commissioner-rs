@@ -8,7 +8,11 @@ use crate::{
     Result,
     crypto::{RecordProtectionKey, pskc_from_active_dataset},
     dataset::Dataset,
+    error::Error,
 };
+
+const MIN_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
+const MAX_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(45);
 
 /// Commissioner configuration.
 #[derive(Clone)]
@@ -17,7 +21,13 @@ pub struct CommissionerConfig {
     pub commissioner_id: String,
     /// PSKc for non-CCM commissioner authentication.
     pub pskc: RecordProtectionKey,
-    /// Keepalive interval.
+    /// Cadence applications should use when scheduling commissioner
+    /// keep-alives.
+    ///
+    /// The library does not spawn a background task; applications that keep a
+    /// session active must drive [`super::Commissioner::keep_alive`] at this
+    /// interval or use an event loop that does so. Values from 30 through 45
+    /// seconds are accepted, matching the reference commissioner.
     pub keepalive_interval: Duration,
     /// Domain name reserved for future CCM flows.
     pub domain_name: String,
@@ -55,6 +65,15 @@ impl CommissionerConfig {
             commissioner_id,
             pskc_from_active_dataset(dataset)?,
         ))
+    }
+
+    pub(crate) fn validate(&self) -> Result<()> {
+        if !(MIN_KEEPALIVE_INTERVAL..=MAX_KEEPALIVE_INTERVAL).contains(&self.keepalive_interval) {
+            return Err(Error::Configuration(
+                "keepalive interval must be between 30 and 45 seconds",
+            ));
+        }
+        Ok(())
     }
 }
 impl Drop for CommissionerConfig {

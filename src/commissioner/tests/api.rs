@@ -16,6 +16,20 @@ async fn connect_binds_udp_socket_and_exposes_state() {
 }
 
 #[tokio::test]
+async fn connect_rejects_invalid_keepalive_intervals_before_network_use() {
+    for interval in [Duration::from_secs(29), Duration::from_secs(46)] {
+        let mut config = CommissionerConfig::pskc("test", [0x11; 16]);
+        config.keepalive_interval = interval;
+        assert!(matches!(
+            Commissioner::connect(config, border_agent())
+                .await
+                .unwrap_err(),
+            Error::Configuration("keepalive interval must be between 30 and 45 seconds")
+        ));
+    }
+}
+
+#[tokio::test]
 async fn scripted_harness_drives_petition_dataset_reads_events_and_resign() {
     let active_dataset = dataset_with_name("active-net");
     let pending_dataset = pending_dataset_with_name("pending-net");

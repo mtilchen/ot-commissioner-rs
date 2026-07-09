@@ -15,7 +15,7 @@ use std::net::Ipv6Addr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ot_commissioner_rs::{
-    commissioner::{Commissioner, DatasetFlags},
+    commissioner::{Commissioner, DatasetFlags, ResultCode},
     dataset::Dataset,
     error::Error,
     meshcop::diag::{NetDiagData, diag_flags},
@@ -28,8 +28,6 @@ use crate::model::{
 
 /// Anycast locator of the leader (Thread 1.4 §5.2.2.1).
 const LEADER_ALOC16: u16 = 0xfc00;
-/// Send a keep-alive whenever this much of the session has elapsed mid-walk.
-const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(20);
 /// Initial TLVs-per-request. A border agent caps its DIAG_GET.rsp size, so a
 /// modest chunk keeps most requests answerable in one round trip; the adaptive
 /// splitter in [`Collector::collect_diag`] handles the occasional overflow.
@@ -99,6 +97,7 @@ const DISCOVERY_TLVS: &[u64] = &[
 pub struct Collector<'a> {
     commissioner: &'a mut Commissioner,
     node_timeout: Duration,
+    keep_alive_interval: Duration,
     last_keep_alive: tokio::time::Instant,
     mesh_local_prefix: [u8; 8],
     dataset: Dataset,
@@ -110,7 +109,14 @@ impl<'a> Collector<'a> {
         commissioner: &'a mut Commissioner,
         node_timeout: Duration,
     ) -> ot_commissioner_rs::Result<Collector<'a>> {
+        let keep_alive_interval = commissioner.config().keepalive_interval;
+        if node_timeout >= keep_alive_interval {
+            return Err(Error::Configuration(
+                "netdiag node timeout must be shorter than the keepalive interval",
+            ));
+        }
         let petition = commissioner.petition().await?;
+        let last_keep_alive = tokio::time::Instant::now();
         eprintln!(
             "petition accepted: session_id=0x{:04x}",
             petition.session_id
@@ -122,7 +128,8 @@ impl<'a> Collector<'a> {
         Ok(Collector {
             commissioner,
             node_timeout,
-            last_keep_alive: tokio::time::Instant::now(),
+            keep_alive_interval,
+            last_keep_alive,
             mesh_local_prefix,
             dataset,
         })
@@ -172,7 +179,7 @@ impl<'a> Collector<'a> {
         let mut nodes: BTreeMap<u16, Node> = BTreeMap::new();
         let mut answers: BTreeMap<u16, NetDiagData> = BTreeMap::new();
         for rloc in router_rlocs {
-            self.keep_alive_if_due().await?;
+            self.keep_alive_before_request().await?;
             let role = if rloc == leader_rloc {
                 Role::Leader
             } else {
@@ -257,7 +264,7 @@ impl<'a> Collector<'a> {
         }
 
         for (child_rloc, child) in &mut children {
-            self.keep_alive_if_due().await?;
+            self.keep_alive_before_request().await?;
             eprintln!("querying child {}", format_rloc16(*child_rloc));
             match self
                 .collect_diag(self.mesh_local_addr(*child_rloc), CHILD_TLVS)
@@ -307,7 +314,7 @@ impl<'a> Collector<'a> {
             .collect();
 
         while let Some(batch) = stack.pop() {
-            self.keep_alive_if_due().await?;
+            self.keep_alive_before_request().await?;
             let combined = batch.iter().fold(0u64, |acc, flag| acc | flag);
             if combined == 0 {
                 continue;
@@ -336,7 +343,7 @@ impl<'a> Collector<'a> {
         destination: Ipv6Addr,
     ) -> ot_commissioner_rs::Result<Option<NetDiagData>> {
         for _ in 0..PRIME_ATTEMPTS {
-            self.keep_alive_if_due().await?;
+            self.keep_alive_before_request().await?;
             if let Some(data) = self.diag_query(destination, diag_flags::MAC_ADDR).await? {
                 return Ok(Some(data));
             }
@@ -374,10 +381,35 @@ impl<'a> Collector<'a> {
         }
     }
 
-    async fn keep_alive_if_due(&mut self) -> ot_commissioner_rs::Result<()> {
-        if self.last_keep_alive.elapsed() >= KEEP_ALIVE_INTERVAL {
-            self.commissioner.keep_alive().await?;
-            self.last_keep_alive = tokio::time::Instant::now();
+    async fn keep_alive_before_request(&mut self) -> ot_commissioner_rs::Result<()> {
+        // Send before the next diagnostic wait could cross the absolute
+        // keep-alive deadline. `start` requires the wait itself to be shorter
+        // than the interval, so one accepted keep-alive creates enough room.
+        if request_may_cross_keepalive_deadline(
+            self.last_keep_alive.elapsed(),
+            self.node_timeout,
+            self.keep_alive_interval,
+        ) {
+            let result = match self.commissioner.keep_alive().await {
+                Ok(result) => result,
+                Err(err) => {
+                    self.commissioner.disconnect();
+                    return Err(err);
+                }
+            };
+            match result {
+                ResultCode::Accept => {
+                    self.last_keep_alive = tokio::time::Instant::now();
+                }
+                ResultCode::Pending => {
+                    self.commissioner.disconnect();
+                    return Err(Error::InvalidState("keep-alive response is pending"));
+                }
+                ResultCode::Reject => {
+                    self.commissioner.disconnect();
+                    return Err(Error::InvalidState("keep-alive was rejected"));
+                }
+            }
         }
         Ok(())
     }
@@ -415,6 +447,14 @@ impl<'a> Collector<'a> {
             leader_rloc16: Some(format_rloc16(leader_rloc)),
         })
     }
+}
+
+fn request_may_cross_keepalive_deadline(
+    elapsed: Duration,
+    request_timeout: Duration,
+    keepalive_interval: Duration,
+) -> bool {
+    elapsed.saturating_add(request_timeout) >= keepalive_interval
 }
 
 /// Overlays the `Some`/non-empty fields of `new` onto `acc`. Each TLV is fetched
@@ -576,4 +616,30 @@ fn unix_time() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_secs())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keepalive_is_sent_before_the_next_request_can_cross_its_deadline() {
+        let interval = Duration::from_secs(40);
+        let request_timeout = Duration::from_secs(5);
+        assert!(!request_may_cross_keepalive_deadline(
+            Duration::from_secs(34),
+            request_timeout,
+            interval
+        ));
+        assert!(request_may_cross_keepalive_deadline(
+            Duration::from_secs(35),
+            request_timeout,
+            interval
+        ));
+        assert!(request_may_cross_keepalive_deadline(
+            Duration::MAX,
+            request_timeout,
+            interval
+        ));
+    }
 }

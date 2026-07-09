@@ -13,8 +13,8 @@ use crate::{
 
 use super::super::types::{CommissionerEvent, CommissionerState, DatasetFlags};
 use super::{
-    Commissioner, MESHCOP_TIMEOUT, MeshcopRoute, aloc_address, check_state_response,
-    commissioner_trace,
+    Commissioner, DTLS_HANDSHAKE_TIMEOUT, MESHCOP_TIMEOUT, MeshcopRoute, aloc_address,
+    check_state_response, commissioner_trace,
 };
 
 impl Commissioner {
@@ -180,21 +180,24 @@ impl Commissioner {
             return Ok(None);
         }
 
-        loop {
-            let response_wire = self.recv_application_data().await?;
-            let message = meshcop::CoapMessage::decode(&response_wire)?;
-            commissioner_trace(format_args!(
-                "recv {} mid={} type={:?} code=0x{:02x} token={}",
-                operation.label(),
-                message.message_id,
-                message.ty,
-                message.code.0,
-                hex::encode(&message.token)
-            ));
-            if let Some(response) = self.handle_incoming(Some(&request), &message).await? {
-                return Ok(Some(response));
+        with_meshcop_exchange_timeout(async {
+            loop {
+                let response_wire = self.recv_application_data().await?;
+                let message = meshcop::CoapMessage::decode(&response_wire)?;
+                commissioner_trace(format_args!(
+                    "recv {} mid={} type={:?} code=0x{:02x} token={}",
+                    operation.label(),
+                    message.message_id,
+                    message.ty,
+                    message.code.0,
+                    hex::encode(&message.token)
+                ));
+                if let Some(response) = self.handle_incoming(Some(&request), &message).await? {
+                    return Ok(Some(response));
+                }
             }
-        }
+        })
+        .await
     }
 
     /// Routes one incoming message.
@@ -280,9 +283,12 @@ impl Commissioner {
 
     async fn ensure_dtls_session(&mut self) -> Result<()> {
         if self.dtls_session.is_none() {
-            let session =
-                DtlsSession::connect(&self.socket, self.config.pskc.as_bytes(), MESHCOP_TIMEOUT)
-                    .await?;
+            let session = with_dtls_handshake_timeout(DtlsSession::connect(
+                &self.socket,
+                self.config.pskc.as_bytes(),
+                MESHCOP_TIMEOUT,
+            ))
+            .await?;
             self.dtls_session = Some(session);
         }
         Ok(())
@@ -439,6 +445,22 @@ impl Commissioner {
     }
 }
 
+async fn with_meshcop_exchange_timeout<T>(
+    exchange: impl core::future::Future<Output = Result<T>>,
+) -> Result<T> {
+    tokio::time::timeout(MESHCOP_TIMEOUT, exchange)
+        .await
+        .map_err(|_| Error::Timeout("MeshCoP exchange timed out"))?
+}
+
+async fn with_dtls_handshake_timeout<T>(
+    handshake: impl core::future::Future<Output = Result<T>>,
+) -> Result<T> {
+    tokio::time::timeout(DTLS_HANDSHAKE_TIMEOUT, handshake)
+        .await
+        .map_err(|_| Error::Timeout("DTLS handshake timed out"))?
+}
+
 /// Rejects CoAP client-error (4.xx) and server-error (5.xx) responses so a
 /// peer's failure surfaces as an error instead of being decoded as an empty
 /// payload. Any 2.xx success response passes through to the tolerant
@@ -455,4 +477,31 @@ fn require_success_response(response: meshcop::CoapMessage) -> Result<meshcop::C
         ));
     }
     Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn meshcop_exchange_timeout_is_absolute() {
+        let started = tokio::time::Instant::now();
+        let err = with_meshcop_exchange_timeout(core::future::pending::<Result<()>>())
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, Error::Timeout("MeshCoP exchange timed out")));
+        assert_eq!(started.elapsed(), MESHCOP_TIMEOUT);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn dtls_handshake_timeout_is_absolute() {
+        let started = tokio::time::Instant::now();
+        let err = with_dtls_handshake_timeout(core::future::pending::<Result<()>>())
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, Error::Timeout("DTLS handshake timed out")));
+        assert_eq!(started.elapsed(), DTLS_HANDSHAKE_TIMEOUT);
+    }
 }
