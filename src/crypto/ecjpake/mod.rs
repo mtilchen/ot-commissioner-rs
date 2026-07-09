@@ -7,8 +7,8 @@
 //!
 //! The protocol state machine ([`EcJpakeParty`]) and the shared P-256 scalar
 //! and point helpers live here; the Schnorr proof generation/verification is in
-//! [`schnorr`], and the TLS `ECJPAKEKeyKPPairList` / key-exchange codecs are in
-//! [`codec`].
+//! the private `schnorr` module, and the TLS `ECJPAKEKeyKPPairList` /
+//! key-exchange codecs are in the private `codec` module.
 
 use p256::{
     AffinePoint, EncodedPoint, ProjectivePoint, Scalar, U256,
@@ -307,9 +307,13 @@ impl EcJpakeRole {
 pub(super) fn random_scalar(rng: &mut (impl RngCore + CryptoRng), allow_zero: bool) -> Scalar {
     loop {
         let scalar = Scalar::random(&mut *rng);
-        if allow_zero || !bool::from(scalar.is_zero()) {
+        if allow_zero {
             return scalar;
         }
+        if bool::from(scalar.is_zero()) {
+            continue;
+        }
+        return scalar;
     }
 }
 

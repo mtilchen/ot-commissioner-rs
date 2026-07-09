@@ -2,8 +2,9 @@
 
 `cargo-mutants` is run against the high-risk protocol files (see
 `tools/ci/mutants.sh`, `targeted` scope). The survivors below are documented
-as equivalent or intrinsic per the working agreement; the rest of the catalog
-is killed by the test suite.
+with their specific equivalence, observability, diagnostic-contract,
+infrastructure, or non-termination rationale; the rest of the catalog is
+killed by the test suite.
 
 ## Equivalent mutants (no input distinguishes them)
 
@@ -20,6 +21,11 @@ is killed by the test suite.
 - `src/meshcop/diag/decode.rs` `decode_child_table`, `<< 8 | low` → `<< 8 ^ low`.
   The 9th child-ID bit (`<< 8`) and the low byte occupy disjoint bit ranges,
   so `|` and `^` produce the same value.
+- `src/meshcop/coap.rs` CoAP header composition, `|` → `^`. The version, type,
+  and token-length values occupy disjoint bit fields after their bounds are
+  validated, so OR and XOR produce the same byte.
+- `src/meshcop/coap.rs` option-header composition, `|` → `^`. The delta and
+  length values occupy disjoint four-bit nibbles, so OR and XOR are identical.
 - `src/commissioner/joiner.rs` `JoinerHandler::on_joiner_connected` default
   `→ ()` and `on_joiner_finalize` default `→ true`. The provided defaults are
   already a no-op and a constant `true`, so the mutations are byte-for-byte
@@ -27,13 +33,18 @@ is killed by the test suite.
 
 ## Intrinsic / unobservable
 
-- `src/commissioner/joiner.rs` `Drop for StaticJoinerHandler` → `()`. The drop
-  body only zeroizes PSKd bytes; removing it has no observable functional
-  behavior (it is a defense-in-depth secret-hygiene step, not a contract a
-  behavioral test can assert).
+- `src/crypto/ecjpake/mod.rs` `Drop for EcJpakeParty` → `()`. The body only
+  zeroizes private scalars immediately before their storage is freed; observing
+  the mutation would require reading freed memory with unsafe code.
+
+## Intentionally uncontracted diagnostics
+
 - `src/commissioner/client/mod.rs` `commissioner_trace` → `()`. Tracing is a
-  best-effort `eprintln!` gated on `OT_COMMISSIONER_TRACE`; it carries no
-  program logic.
+  best-effort `eprintln!` gated on `OT_COMMISSIONER_TRACE`. Its text and
+  presence are deliberately not part of the program's behavioral contract.
+
+## Deferred infrastructure-bound behavior
+
 - `src/commissioner/client/relay.rs` `handle_relay_rx`, `!expired` in the sweep
   `retain`. Killing this requires injecting a synthetic clock into the
   commissioner; the joiner-session expiry boundary itself is covered by

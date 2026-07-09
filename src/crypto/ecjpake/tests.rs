@@ -1,6 +1,43 @@
 use super::codec::{TlsEcJpakeCursor, trim_scalar_bytes, validate_tls_u8_len};
 use super::*;
-use rand_core::OsRng;
+use rand_core::{CryptoRng, Error as RandError, OsRng, RngCore};
+
+#[derive(Default)]
+struct ZeroThenOneRng {
+    fills: usize,
+}
+
+impl RngCore for ZeroThenOneRng {
+    fn next_u32(&mut self) -> u32 {
+        let mut bytes = [0u8; 4];
+        self.fill_bytes(&mut bytes);
+        u32::from_be_bytes(bytes)
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        let mut bytes = [0u8; 8];
+        self.fill_bytes(&mut bytes);
+        u64::from_be_bytes(bytes)
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        dest.fill(0);
+        if self.fills > 0 {
+            let last = dest
+                .last_mut()
+                .expect("scalar generation always requests a nonempty buffer");
+            *last = 1;
+        }
+        self.fills += 1;
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> core::result::Result<(), RandError> {
+        self.fill_bytes(dest);
+        Ok(())
+    }
+}
+
+impl CryptoRng for ZeroThenOneRng {}
 
 fn scalar_bytes(v: u64) -> [u8; 32] {
     let mut out = [0u8; 32];
@@ -115,6 +152,26 @@ fn deterministic_parties_reject_zero_ephemeral_scalars() {
         ),
         Err(Error::Crypto(message)) if message == "x2/x4 must be nonzero"
     ));
+}
+
+#[test]
+fn random_scalar_returns_zero_when_allowed() {
+    let mut rng = ZeroThenOneRng::default();
+
+    let scalar = random_scalar(&mut rng, true);
+
+    assert!(bool::from(scalar.is_zero()));
+    assert_eq!(rng.fills, 1);
+}
+
+#[test]
+fn random_scalar_retries_zero_when_disallowed() {
+    let mut rng = ZeroThenOneRng::default();
+
+    let scalar = random_scalar(&mut rng, false);
+
+    assert!(!bool::from(scalar.is_zero()));
+    assert_eq!(rng.fills, 2);
 }
 
 #[test]

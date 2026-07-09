@@ -1,9 +1,10 @@
 # cargo-mutants configuration (read by tools/ci/mutants.sh via cargo-mutants).
 #
 # The CI mutation gate fails on any missed mutant, so every exclusion here
-# must be justified: only provably equivalent mutants or mutants whose effect
-# is unobservable without unsafe code belong on this list. Document the reason
-# above each entry.
+# must be justified: only provably equivalent mutants, effects that cannot be
+# observed in safe Rust, intentionally uncontracted diagnostics, or broken
+# behavior whose whole-suite mutation result is non-termination belong here.
+# Document the reason above each entry.
 
 exclude_re = [
     # Equivalent mutant: when `sequence == newest` the mutated guard selects
@@ -19,12 +20,11 @@ exclude_re = [
     'replace JoinerHandler::on_joiner_connected with \(\)',
     'replace JoinerHandler::on_joiner_finalize -> bool with true',
 
-    # These Drop impls only zeroize secrets in memory that is freed
-    # immediately afterwards. Observing whether zeroization happened requires
-    # reading freed memory, i.e. unsafe code, which this crate forbids
+    # This Drop impl only zeroizes secrets in memory that is freed immediately
+    # afterwards. Observing whether zeroization happened requires reading freed
+    # memory, i.e. unsafe code, which this crate forbids
     # (#![forbid(unsafe_code)]).
     'replace <impl Drop for EcJpakeParty>::drop with \(\)',
-    'replace <impl Drop for StaticJoinerHandler>::drop with \(\)',
 
     # Diagnostics only: an env-gated, non-secret protocol trace on stderr with
     # no functional contract worth pinning in a test.
@@ -48,13 +48,6 @@ exclude_re = [
     # shifted left by 8) with bits 0-7 (`chunk[1]`) — disjoint bit ranges,
     # so `|` and `^` agree.
     'replace \| with \^ in decode_child_table',
-
-    # Untestable without non-termination: `random_scalar` rejection-samples a
-    # nonzero scalar. Forcing the guard wrong only manifests as an infinite
-    # loop (a zero scalar occurs with probability ~2^-256), so these mutants
-    # can only ever time out, never fail an assertion.
-    'replace \|\| with && in random_scalar',
-    'delete ! in random_scalar',
 
     # Untestable without non-termination: a dedicated unit test does fail this
     # stub by assertion, but the session receive loops legitimately retry on
