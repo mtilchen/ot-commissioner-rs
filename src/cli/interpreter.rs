@@ -12,11 +12,12 @@ use std::net::{Ipv6Addr, SocketAddr};
 use std::time::Duration;
 
 use serde_json::json;
+use zeroize::Zeroizing;
 
 use crate::{
     commissioner::{
         Commissioner, CommissionerDatasetFlags, CommissionerEvent, CommissionerState, DatasetFlags,
-        StaticJoinerHandler,
+        ResultCode, StaticJoinerHandler,
     },
     crypto::compute_joiner_id,
     dataset::Dataset,
@@ -30,6 +31,14 @@ use super::value::CommandValue;
 const SYNTAX_FEW_ARGS: &str = "too few arguments";
 const NOT_CONNECTED: &str = "commissioner is not started; run 'start' first";
 
+// A commissioner operation owns the transport until its response arrives, so
+// a keep-alive cannot safely be interleaved with an in-flight command. The
+// longest current command paths can wait through multiple serial five-second
+// MeshCoP receive windows plus an event-collection period. Reserving twenty
+// seconds before dispatch keeps those bounded paths inside the minimum
+// thirty-second keep-alive interval with scheduling/processing margin.
+const COMMAND_KEEPALIVE_HEADROOM: Duration = Duration::from_secs(20);
+
 /// One parsed REPL command line.
 type Tokens = Vec<String>;
 
@@ -38,8 +47,9 @@ pub struct Interpreter {
     config: CliConfig,
     commissioner: Option<Commissioner>,
     /// Joiner PSKds keyed by joiner ID, applied via a [`StaticJoinerHandler`].
-    joiner_pskds: HashMap<[u8; 8], String>,
-    joiner_all_pskd: Option<String>,
+    joiner_pskds: HashMap<[u8; 8], Zeroizing<String>>,
+    joiner_all_pskd: Option<Zeroizing<String>>,
+    keepalive_deadline: Option<tokio::time::Instant>,
     energy_reports: Vec<(String, u32, Vec<u8>)>,
     panid_conflicts: Vec<(String, u32, u16)>,
     should_exit: bool,
@@ -53,6 +63,7 @@ impl Interpreter {
             commissioner: None,
             joiner_pskds: HashMap::new(),
             joiner_all_pskd: None,
+            keepalive_deadline: None,
             energy_reports: Vec::new(),
             panid_conflicts: Vec::new(),
             should_exit: false,
@@ -64,6 +75,127 @@ impl Interpreter {
         self.should_exit
     }
 
+    /// Returns the absolute deadline for the next application-driven
+    /// commissioner keep-alive.
+    pub(super) fn keepalive_deadline(&self) -> Option<tokio::time::Instant> {
+        self.keepalive_deadline
+    }
+
+    /// Sends a scheduled or proactive keep-alive for the REPL loop.
+    ///
+    /// An accepted response re-arms the absolute deadline. Pending, rejected,
+    /// and failed exchanges disconnect the unusable session so the application
+    /// cannot continue without keep-alives.
+    pub(super) async fn handle_scheduled_keepalive(&mut self) -> crate::Result<()> {
+        self.keepalive_deadline = None;
+        let (result, deferred_events, callback_result) = {
+            let commissioner = self
+                .commissioner
+                .as_mut()
+                .ok_or(crate::Error::InvalidState("commissioner is not started"))?;
+            if commissioner.state() != CommissionerState::Active {
+                return Err(crate::Error::InvalidState(
+                    "commissioner session is not active",
+                ));
+            }
+
+            let result = match commissioner.keep_alive().await {
+                Ok(result) => result,
+                Err(err) => {
+                    commissioner.disconnect();
+                    return Err(err);
+                }
+            };
+            let mut deferred_events = Vec::new();
+            let callback_result = loop {
+                let event = match commissioner.next_event().await {
+                    Ok(Some(event)) => event,
+                    Ok(None) => {
+                        commissioner.disconnect();
+                        return Err(crate::Error::InvalidState(
+                            "keep-alive response event was not queued",
+                        ));
+                    }
+                    Err(err) => {
+                        commissioner.disconnect();
+                        return Err(err);
+                    }
+                };
+                match event {
+                    CommissionerEvent::KeepAliveResponse(callback_result) => {
+                        break callback_result;
+                    }
+                    other => deferred_events.push(other),
+                }
+            };
+            (result, deferred_events, callback_result)
+        };
+
+        for event in deferred_events {
+            self.record_event(event);
+        }
+        if callback_result != result {
+            if let Some(commissioner) = self.commissioner.as_mut() {
+                commissioner.disconnect();
+            }
+            return Err(crate::Error::InvalidState(
+                "keep-alive result and callback did not match",
+            ));
+        }
+        match result {
+            ResultCode::Accept => {
+                self.schedule_keepalive();
+                Ok(())
+            }
+            ResultCode::Pending => {
+                if let Some(commissioner) = self.commissioner.as_mut() {
+                    commissioner.disconnect();
+                }
+                Err(crate::Error::InvalidState(
+                    "scheduled keep-alive response is pending",
+                ))
+            }
+            ResultCode::Reject => {
+                if let Some(commissioner) = self.commissioner.as_mut() {
+                    commissioner.disconnect();
+                }
+                Err(crate::Error::InvalidState(
+                    "scheduled keep-alive was rejected",
+                ))
+            }
+        }
+    }
+
+    fn schedule_keepalive(&mut self) {
+        self.keepalive_deadline = self
+            .commissioner
+            .as_ref()
+            .filter(|commissioner| commissioner.state() == CommissionerState::Active)
+            .and_then(|commissioner| {
+                tokio::time::Instant::now().checked_add(commissioner.config().keepalive_interval)
+            });
+    }
+
+    async fn refresh_keepalive_before_command(&mut self, tokens: &Tokens) -> crate::Result<()> {
+        if !command_may_wait_for_commissioner(tokens) {
+            return Ok(());
+        }
+        let Some(deadline) = self.keepalive_deadline else {
+            return Ok(());
+        };
+        // A replacement start can spend several receive windows establishing
+        // the new DTLS session, while the current commissioner remains active
+        // until that attempt succeeds. Refresh it regardless of headroom.
+        let starts_replacement = tokens.first().is_some_and(|token| token == "start");
+        if !starts_replacement
+            && deadline.saturating_duration_since(tokio::time::Instant::now())
+                > COMMAND_KEEPALIVE_HEADROOM
+        {
+            return Ok(());
+        }
+        self.handle_scheduled_keepalive().await
+    }
+
     /// Evaluates one input line and prints the result.
     pub async fn evaluate_and_print(&mut self, line: &str) {
         let tokens = match tokenize(line) {
@@ -73,6 +205,7 @@ impl Interpreter {
                 return;
             }
         };
+        let tokens = Zeroizing::new(tokens);
         if tokens.is_empty() {
             return;
         }
@@ -82,6 +215,10 @@ impl Interpreter {
                  which is not implemented in this build",
             )
             .print();
+            return;
+        }
+        if let Err(err) = self.refresh_keepalive_before_command(&tokens).await {
+            CommandValue::failed(format!("keep-alive failed: {err}")).print();
             return;
         }
         let value = self.dispatch(&tokens).await;
@@ -190,11 +327,14 @@ impl Interpreter {
         };
         // Keep the connected session regardless of the petition outcome so the
         // user can inspect `state` and `stop` to disconnect, as the C++ CLI does.
+        self.keepalive_deadline = None;
         self.commissioner = Some(commissioner);
+        self.schedule_keepalive();
         petition_result.into()
     }
 
     async fn cmd_stop(&mut self) -> CommandValue {
+        self.keepalive_deadline = None;
         match self.commissioner.as_mut() {
             Some(commissioner) => {
                 let result = commissioner.resign().await;
@@ -216,9 +356,9 @@ impl Interpreter {
         match tokens[1].as_str() {
             "get" => {
                 if property == "admincode" {
-                    CommandValue::ok(self.config.admin_code.clone())
+                    CommandValue::ok(self.config.admin_code.to_string())
                 } else {
-                    CommandValue::ok(hex::encode(&self.config.pskc))
+                    CommandValue::ok(hex::encode(self.config.pskc.as_slice()))
                 }
             }
             "set" => {
@@ -226,13 +366,13 @@ impl Interpreter {
                     return CommandValue::failed(SYNTAX_FEW_ARGS);
                 }
                 if property == "admincode" {
-                    self.config.admin_code = tokens[3].clone();
-                    self.config.pskc = tokens[3].as_bytes().to_vec();
+                    self.config.admin_code = Zeroizing::new(tokens[3].clone());
+                    self.config.pskc = Zeroizing::new(tokens[3].as_bytes().to_vec());
                     CommandValue::done()
                 } else {
                     match hex::decode(tokens[3].trim()) {
                         Ok(bytes) => {
-                            self.config.pskc = bytes;
+                            self.config.pskc = Zeroizing::new(bytes);
                             CommandValue::done()
                         }
                         Err(err) => CommandValue::failed(format!("invalid PSKc hex: {err}")),
@@ -307,7 +447,7 @@ impl Interpreter {
                 if let Err(err) = commissioner.enable_joiner(&joiner_id).await {
                     return CommandValue::failed(err.to_string());
                 }
-                self.joiner_pskds.insert(joiner_id, pskd);
+                self.joiner_pskds.insert(joiner_id, Zeroizing::new(pskd));
                 self.reinstall_joiner_handler();
                 CommandValue::done()
             }
@@ -318,7 +458,7 @@ impl Interpreter {
                 if let Err(err) = commissioner.enable_all_joiners(true).await {
                     return CommandValue::failed(err.to_string());
                 }
-                self.joiner_all_pskd = Some(tokens[3].clone());
+                self.joiner_all_pskd = Some(Zeroizing::new(tokens[3].clone()));
                 self.reinstall_joiner_handler();
                 CommandValue::done()
             }
@@ -384,10 +524,10 @@ impl Interpreter {
     fn build_joiner_handler(&self) -> StaticJoinerHandler {
         let mut handler = StaticJoinerHandler::new();
         if let Some(pskd) = &self.joiner_all_pskd {
-            handler.enable_all(pskd.clone());
+            handler.enable_all(pskd.as_str().to_owned());
         }
         for (id, pskd) in &self.joiner_pskds {
-            handler.enable_joiner_id(*id, pskd.clone());
+            handler.enable_joiner_id(*id, pskd.as_str().to_owned());
         }
         handler
     }
@@ -912,33 +1052,43 @@ impl Interpreter {
     /// Drains commissioner events for up to `duration`, storing energy reports
     /// and PAN-ID conflicts for the later `energy report` / `panid conflict`.
     async fn pump_events(&mut self, duration: Duration) {
-        let Some(commissioner) = self.commissioner.as_mut() else {
+        if self.commissioner.is_none() {
             return;
-        };
+        }
         let deadline = tokio::time::Instant::now() + duration;
         loop {
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero() {
                 break;
             }
-            match tokio::time::timeout(remaining, commissioner.next_event()).await {
-                Ok(Ok(Some(event))) => match event {
-                    CommissionerEvent::EnergyReport {
-                        peer_addr,
-                        channel_mask,
-                        energy_list,
-                    } => self
-                        .energy_reports
-                        .push((peer_addr, channel_mask, energy_list)),
-                    CommissionerEvent::PanIdConflict {
-                        peer_addr,
-                        channel_mask,
-                        pan_id,
-                    } => self.panid_conflicts.push((peer_addr, channel_mask, pan_id)),
-                    _ => {}
-                },
+            let result = {
+                let Some(commissioner) = self.commissioner.as_mut() else {
+                    return;
+                };
+                tokio::time::timeout(remaining, commissioner.next_event()).await
+            };
+            match result {
+                Ok(Ok(Some(event))) => self.record_event(event),
                 Ok(Ok(None)) | Ok(Err(_)) | Err(_) => break,
             }
+        }
+    }
+
+    fn record_event(&mut self, event: CommissionerEvent) {
+        match event {
+            CommissionerEvent::EnergyReport {
+                peer_addr,
+                channel_mask,
+                energy_list,
+            } => self
+                .energy_reports
+                .push((peer_addr, channel_mask, energy_list)),
+            CommissionerEvent::PanIdConflict {
+                peer_addr,
+                channel_mask,
+                pan_id,
+            } => self.panid_conflicts.push((peer_addr, channel_mask, pan_id)),
+            _ => {}
         }
     }
 }
@@ -1026,11 +1176,39 @@ fn has_multi_network_flag(tokens: &Tokens) -> bool {
     tokens.iter().any(|t| t == "--nwk" || t == "--dom")
 }
 
+/// Whether this command form may block while an active commissioner needs
+/// keep-alive service.
+///
+/// Classification stops at the command/subcommand boundary; detailed syntax
+/// validation remains with dispatch. Local, cached, unsupported, and unknown
+/// subcommands do not acquire the network merely to render their result.
+fn command_may_wait_for_commissioner(tokens: &Tokens) -> bool {
+    let command = tokens.first().map(String::as_str);
+    let subcommand = tokens.get(1).map(String::as_str);
+    match command {
+        // Starting a replacement connection leaves any current commissioner
+        // active until the new connection and petition succeed.
+        Some("start") => true,
+        Some("borderagent") => subcommand == Some("get"),
+        Some("joiner") => matches!(
+            subcommand,
+            Some("enable" | "enableall" | "disableall" | "getport" | "setport")
+        ),
+        Some("commdataset" | "opdataset") => matches!(subcommand, Some("get" | "set")),
+        Some("bbrdataset") => subcommand == Some("get"),
+        Some("reenroll" | "domainreset" | "migrate" | "mlr" | "announce") => true,
+        Some("panid") => subcommand == Some("query"),
+        Some("energy") => subcommand == Some("scan"),
+        Some("netdiag") => matches!(subcommand, Some("query" | "reset")),
+        Some(_) | None => false,
+    }
+}
+
 /// Splits a command line into tokens, honoring single/double-quoted spans
 /// (used for JSON dataset arguments).
 fn tokenize(line: &str) -> std::result::Result<Tokens, String> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
+    let mut tokens = Zeroizing::new(Vec::new());
+    let mut current = Zeroizing::new(String::new());
     let mut in_token = false;
     let mut quote: Option<char> = None;
     for ch in line.chars() {
@@ -1048,7 +1226,7 @@ fn tokenize(line: &str) -> std::result::Result<Tokens, String> {
                     in_token = true;
                 } else if ch.is_whitespace() {
                     if in_token {
-                        tokens.push(std::mem::take(&mut current));
+                        tokens.push(std::mem::take(&mut *current));
                         in_token = false;
                     }
                 } else {
@@ -1062,9 +1240,9 @@ fn tokenize(line: &str) -> std::result::Result<Tokens, String> {
         return Err("unterminated quoted argument".to_string());
     }
     if in_token {
-        tokens.push(current);
+        tokens.push(std::mem::take(&mut *current));
     }
-    Ok(tokens)
+    Ok(std::mem::take(&mut *tokens))
 }
 
 /// The command table: name plus the verbatim C++ usage string, used by `help`.
@@ -1148,10 +1326,10 @@ const COMMANDS: &[(&str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commissioner::CommissionerConfig;
     use crate::commissioner::harness::{
         ScriptedExchange, ScriptedMeshcopTransport, ScriptedResponse,
     };
+    use crate::commissioner::{CommissionerConfig, JoinerHandler};
     use crate::meshcop::CommissionerOperation;
 
     /// Dispatches one offline command line (no border-agent session) and
@@ -1159,7 +1337,7 @@ mod tests {
     async fn dispatch_line(line: &str) -> String {
         let mut interpreter = Interpreter::new(CliConfig::default());
         let tokens = tokenize(line).unwrap();
-        interpreter.dispatch(&tokens).await.rendered()
+        interpreter.dispatch(&tokens).await.rendered().to_string()
     }
 
     /// Dispatches one line on `interpreter` and returns the rendered output.
@@ -1168,6 +1346,7 @@ mod tests {
             .dispatch(&tokenize(line).unwrap())
             .await
             .rendered()
+            .to_string()
     }
 
     /// Builds an interpreter whose commissioner runs against the scripted
@@ -1177,13 +1356,26 @@ mod tests {
         exchanges: impl IntoIterator<Item = (CommissionerOperation, Vec<ScriptedResponse>)>,
         initial_events: impl IntoIterator<Item = CommissionerEvent>,
     ) -> Interpreter {
+        scripted_interpreter_with_config(
+            CommissionerConfig::pskc("ot-commissioner-rs", [0x11; 16]),
+            exchanges,
+            initial_events,
+        )
+        .await
+    }
+
+    async fn scripted_interpreter_with_config(
+        config: CommissionerConfig,
+        exchanges: impl IntoIterator<Item = (CommissionerOperation, Vec<ScriptedResponse>)>,
+        initial_events: impl IntoIterator<Item = CommissionerEvent>,
+    ) -> Interpreter {
         let script = ScriptedMeshcopTransport::new(
             exchanges
                 .into_iter()
                 .map(|(operation, responses)| ScriptedExchange::new(operation, responses)),
         );
         let mut commissioner = Commissioner::connect_scripted(
-            CommissionerConfig::pskc("ot-commissioner-rs", [0x11; 16]),
+            config,
             "127.0.0.1:49156".parse().unwrap(),
             script,
             initial_events,
@@ -1202,12 +1394,25 @@ mod tests {
         exchanges: impl IntoIterator<Item = (CommissionerOperation, Vec<ScriptedResponse>)>,
         initial_events: impl IntoIterator<Item = CommissionerEvent>,
     ) -> Interpreter {
+        active_interpreter_with_config(
+            CommissionerConfig::pskc("ot-commissioner-rs", [0x11; 16]),
+            exchanges,
+            initial_events,
+        )
+        .await
+    }
+
+    async fn active_interpreter_with_config(
+        config: CommissionerConfig,
+        exchanges: impl IntoIterator<Item = (CommissionerOperation, Vec<ScriptedResponse>)>,
+        initial_events: impl IntoIterator<Item = CommissionerEvent>,
+    ) -> Interpreter {
         let mut all = vec![(
             CommissionerOperation::Petition,
             vec![ScriptedResponse::petition_accept(0xbeef)],
         )];
         all.extend(exchanges);
-        let mut interpreter = scripted_interpreter(all, initial_events).await;
+        let mut interpreter = scripted_interpreter_with_config(config, all, initial_events).await;
         interpreter
             .commissioner
             .as_mut()
@@ -1281,6 +1486,62 @@ mod tests {
         assert!(!is_known_op_field("bogus"));
     }
 
+    #[test]
+    fn keepalive_preflight_classifies_network_backed_command_forms() {
+        for command in [
+            "start 127.0.0.1 49191",
+            "borderagent get locator",
+            "joiner enable meshcop 1 PSKD",
+            "joiner enableall meshcop PSKD",
+            "joiner disableall meshcop",
+            "joiner getport meshcop",
+            "joiner setport meshcop 1000",
+            "commdataset get",
+            "commdataset set {}",
+            "opdataset get active",
+            "opdataset set active {}",
+            "bbrdataset get",
+            "reenroll fd00::1",
+            "domainreset fd00::1",
+            "migrate fd00::1 network",
+            "mlr ff05::1 300",
+            "announce 1 1 1 fd00::1",
+            "panid query 1 1 fd00::1",
+            "energy scan 1 1 1 1 fd00::1",
+            "netdiag query fd00::1",
+            "netdiag reset maccounters fd00::1",
+        ] {
+            assert!(
+                command_may_wait_for_commissioner(&tokenize(command).unwrap()),
+                "expected network-backed command: {command}"
+            );
+        }
+
+        for command in [
+            "",
+            "stop",
+            "state",
+            "borderagent discover",
+            "borderagent invalid",
+            "joiner disable meshcop 1",
+            "joiner invalid meshcop",
+            "commdataset invalid",
+            "opdataset invalid active",
+            "bbrdataset set {}",
+            "bbrdataset invalid",
+            "panid conflict 1",
+            "panid invalid",
+            "energy report",
+            "energy invalid",
+            "netdiag invalid fd00::1",
+        ] {
+            assert!(
+                !command_may_wait_for_commissioner(&tokenize(command).unwrap()),
+                "expected local or invalid command: {command}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn state_is_disabled_and_active_is_false_before_start() {
         assert_eq!(dispatch_line("state").await, "disabled\n[done]");
@@ -1349,11 +1610,14 @@ mod tests {
         let set = interpreter
             .dispatch(&tokenize("config set pskc 00112233445566778899aabbccddeeff").unwrap())
             .await;
-        assert_eq!(set.rendered(), "[done]");
+        assert_eq!(set.rendered().as_str(), "[done]");
         let get = interpreter
             .dispatch(&tokenize("config get pskc").unwrap())
             .await;
-        assert_eq!(get.rendered(), "00112233445566778899aabbccddeeff\n[done]");
+        assert_eq!(
+            get.rendered().as_str(),
+            "00112233445566778899aabbccddeeff\n[done]"
+        );
     }
 
     #[tokio::test]
@@ -1453,6 +1717,355 @@ mod tests {
         assert_eq!(run_line(&mut interpreter, "sessionid").await, ok(0xbeefu16));
         assert_eq!(run_line(&mut interpreter, "stop").await, "[done]");
         assert_eq!(run_line(&mut interpreter, "state").await, ok("disabled"));
+    }
+
+    #[tokio::test]
+    async fn keepalive_schedule_requires_an_active_session() {
+        let mut interpreter = scripted_interpreter([], []).await;
+        interpreter.schedule_keepalive();
+        assert_eq!(interpreter.keepalive_deadline(), None);
+
+        interpreter = active_interpreter([], []).await;
+        interpreter.schedule_keepalive();
+        assert!(interpreter.keepalive_deadline().is_some());
+    }
+
+    #[test]
+    fn joiner_handler_is_built_from_zeroizing_cli_credentials() {
+        let joiner_id = [0x42; 8];
+        let mut interpreter = Interpreter::new(CliConfig::default());
+        interpreter.joiner_all_pskd = Some(Zeroizing::new("wildcard-secret".to_string()));
+        interpreter
+            .joiner_pskds
+            .insert(joiner_id, Zeroizing::new("joiner-secret".to_string()));
+
+        let mut handler = interpreter.build_joiner_handler();
+        assert_eq!(
+            handler.joiner_pskd(&joiner_id).as_deref(),
+            Some("joiner-secret")
+        );
+        assert_eq!(
+            handler.joiner_pskd(&[0x99; 8]).as_deref(),
+            Some("wildcard-secret")
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn scheduled_keepalive_uses_the_configured_cadence_and_rearms() {
+        let mut config = CommissionerConfig::pskc("ot-commissioner-rs", [0x11; 16]);
+        config.keepalive_interval = Duration::from_secs(37);
+        let mut interpreter = active_interpreter_with_config(
+            config,
+            [
+                (
+                    CommissionerOperation::KeepAlive,
+                    vec![ScriptedResponse::accept()],
+                ),
+                (
+                    CommissionerOperation::KeepAlive,
+                    vec![ScriptedResponse::accept()],
+                ),
+            ],
+            [],
+        )
+        .await;
+        interpreter.schedule_keepalive();
+
+        let interval = Duration::from_secs(37);
+        let first_deadline = interpreter.keepalive_deadline().unwrap();
+        assert_eq!(
+            first_deadline.saturating_duration_since(tokio::time::Instant::now()),
+            interval
+        );
+        assert_eq!(
+            interpreter
+                .commissioner
+                .as_ref()
+                .unwrap()
+                .scripted_transport()
+                .unwrap()
+                .observed_requests()
+                .len(),
+            1
+        );
+
+        tokio::time::advance(interval - Duration::from_secs(1)).await;
+        assert!(tokio::time::Instant::now() < first_deadline);
+        tokio::time::advance(Duration::from_secs(1)).await;
+        interpreter.handle_scheduled_keepalive().await.unwrap();
+
+        let second_deadline = interpreter.keepalive_deadline().unwrap();
+        assert_eq!(
+            second_deadline.saturating_duration_since(tokio::time::Instant::now()),
+            interval
+        );
+        assert_eq!(
+            interpreter
+                .commissioner
+                .as_ref()
+                .unwrap()
+                .scripted_transport()
+                .unwrap()
+                .observed_requests()
+                .len(),
+            2
+        );
+
+        tokio::time::advance(interval).await;
+        interpreter.handle_scheduled_keepalive().await.unwrap();
+        assert_eq!(
+            interpreter
+                .commissioner
+                .as_ref()
+                .unwrap()
+                .scripted_transport()
+                .unwrap()
+                .observed_requests()
+                .len(),
+            3
+        );
+        assert!(matches!(
+            interpreter
+                .commissioner
+                .as_mut()
+                .unwrap()
+                .next_event()
+                .await
+                .unwrap_err(),
+            crate::Error::InvalidState("DTLS session is not established")
+        ));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn command_that_could_cross_the_deadline_refreshes_keepalive_first() {
+        let mut config = CommissionerConfig::pskc("ot-commissioner-rs", [0x11; 16]);
+        config.keepalive_interval = Duration::from_secs(30);
+        let mut interpreter = active_interpreter_with_config(
+            config,
+            [
+                (
+                    CommissionerOperation::KeepAlive,
+                    vec![ScriptedResponse::accept()],
+                ),
+                (
+                    CommissionerOperation::GetCommissionerDataset,
+                    vec![ScriptedResponse::content(Vec::new())],
+                ),
+                (
+                    CommissionerOperation::SetCommissionerDataset,
+                    vec![ScriptedResponse::accept()],
+                ),
+                (
+                    CommissionerOperation::KeepAlive,
+                    vec![ScriptedResponse::accept()],
+                ),
+                (
+                    CommissionerOperation::GetBbrDataset,
+                    vec![ScriptedResponse::content(Vec::new())],
+                ),
+            ],
+            [],
+        )
+        .await;
+        interpreter.schedule_keepalive();
+
+        // Enabling one joiner performs two serial MeshCoP exchanges. With only
+        // nine seconds remaining, their receive windows could cross the old
+        // deadline, so evaluation must refresh before dispatching either one.
+        tokio::time::advance(Duration::from_secs(21)).await;
+        interpreter
+            .evaluate_and_print("joiner enable meshcop 0x0011223344556677 J01NU5")
+            .await;
+
+        let observed_operations: Vec<_> = interpreter
+            .commissioner
+            .as_ref()
+            .unwrap()
+            .scripted_transport()
+            .unwrap()
+            .observed_requests()
+            .iter()
+            .map(|request| request.operation)
+            .collect();
+        assert_eq!(
+            observed_operations,
+            [
+                CommissionerOperation::Petition,
+                CommissionerOperation::KeepAlive,
+                CommissionerOperation::GetCommissionerDataset,
+                CommissionerOperation::SetCommissionerDataset,
+            ]
+        );
+        assert_eq!(
+            interpreter
+                .keepalive_deadline()
+                .unwrap()
+                .saturating_duration_since(tokio::time::Instant::now()),
+            Duration::from_secs(30)
+        );
+
+        // The guard is inclusive: dispatch at exactly 20 seconds remaining
+        // also refreshes, preserving the documented processing margin.
+        tokio::time::advance(COMMAND_KEEPALIVE_HEADROOM / 2).await;
+        interpreter.evaluate_and_print("bbrdataset get").await;
+        let observed_operations: Vec<_> = interpreter
+            .commissioner
+            .as_ref()
+            .unwrap()
+            .scripted_transport()
+            .unwrap()
+            .observed_requests()
+            .iter()
+            .map(|request| request.operation)
+            .collect();
+        assert_eq!(
+            observed_operations,
+            [
+                CommissionerOperation::Petition,
+                CommissionerOperation::KeepAlive,
+                CommissionerOperation::GetCommissionerDataset,
+                CommissionerOperation::SetCommissionerDataset,
+                CommissionerOperation::KeepAlive,
+                CommissionerOperation::GetBbrDataset,
+            ]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn command_with_sufficient_headroom_does_not_refresh_early() {
+        let mut interpreter = active_interpreter(
+            [(
+                CommissionerOperation::GetBbrDataset,
+                vec![ScriptedResponse::content(Vec::new())],
+            )],
+            [],
+        )
+        .await;
+        interpreter.schedule_keepalive();
+        let deadline = interpreter.keepalive_deadline();
+
+        interpreter.evaluate_and_print("bbrdataset get").await;
+
+        assert_eq!(interpreter.keepalive_deadline(), deadline);
+        let observed_operations: Vec<_> = interpreter
+            .commissioner
+            .as_ref()
+            .unwrap()
+            .scripted_transport()
+            .unwrap()
+            .observed_requests()
+            .iter()
+            .map(|request| request.operation)
+            .collect();
+        assert_eq!(
+            observed_operations,
+            [
+                CommissionerOperation::Petition,
+                CommissionerOperation::GetBbrDataset,
+            ]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn replacement_start_refreshes_the_current_session_with_full_headroom() {
+        let mut interpreter = active_interpreter(
+            [(
+                CommissionerOperation::KeepAlive,
+                vec![ScriptedResponse::accept()],
+            )],
+            [],
+        )
+        .await;
+        interpreter.schedule_keepalive();
+
+        interpreter
+            .refresh_keepalive_before_command(&tokenize("start 127.0.0.1 49191").unwrap())
+            .await
+            .unwrap();
+
+        let observed_operations: Vec<_> = interpreter
+            .commissioner
+            .as_ref()
+            .unwrap()
+            .scripted_transport()
+            .unwrap()
+            .observed_requests()
+            .iter()
+            .map(|request| request.operation)
+            .collect();
+        assert_eq!(
+            observed_operations,
+            [
+                CommissionerOperation::Petition,
+                CommissionerOperation::KeepAlive,
+            ]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn rejected_scheduled_keepalive_disarms_the_timer() {
+        let mut interpreter = active_interpreter(
+            [(
+                CommissionerOperation::KeepAlive,
+                vec![ScriptedResponse::reject()],
+            )],
+            [],
+        )
+        .await;
+        interpreter.schedule_keepalive();
+        tokio::time::advance(Duration::from_secs(40)).await;
+
+        assert!(matches!(
+            interpreter.handle_scheduled_keepalive().await.unwrap_err(),
+            crate::Error::InvalidState("scheduled keep-alive was rejected")
+        ));
+        assert_eq!(interpreter.keepalive_deadline(), None);
+        assert_eq!(
+            interpreter.commissioner.as_ref().unwrap().state(),
+            CommissionerState::Disabled
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn pending_scheduled_keepalive_disconnects_and_disarms() {
+        let mut interpreter = active_interpreter(
+            [(
+                CommissionerOperation::KeepAlive,
+                vec![ScriptedResponse::pending()],
+            )],
+            [],
+        )
+        .await;
+        interpreter.schedule_keepalive();
+        tokio::time::advance(Duration::from_secs(40)).await;
+
+        assert!(matches!(
+            interpreter.handle_scheduled_keepalive().await.unwrap_err(),
+            crate::Error::InvalidState("scheduled keep-alive response is pending")
+        ));
+        assert_eq!(interpreter.keepalive_deadline(), None);
+        assert_eq!(
+            interpreter.commissioner.as_ref().unwrap().state(),
+            CommissionerState::Disabled
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn failed_scheduled_keepalive_disconnects_and_disarms() {
+        let mut interpreter =
+            active_interpreter([(CommissionerOperation::KeepAlive, Vec::new())], []).await;
+        interpreter.schedule_keepalive();
+        tokio::time::advance(Duration::from_secs(40)).await;
+
+        assert!(matches!(
+            interpreter.handle_scheduled_keepalive().await.unwrap_err(),
+            crate::Error::InvalidState("scripted MeshCoP exchange did not produce a response")
+        ));
+        assert_eq!(interpreter.keepalive_deadline(), None);
+        assert_eq!(
+            interpreter.commissioner.as_ref().unwrap().state(),
+            CommissionerState::Disabled
+        );
     }
 
     #[tokio::test]

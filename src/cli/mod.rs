@@ -19,6 +19,8 @@ mod value;
 
 use std::path::Path;
 
+use zeroize::Zeroizing;
+
 use console::Color;
 use interpreter::Interpreter;
 
@@ -140,9 +142,38 @@ pub async fn run(config_path: Option<&Path>) -> crate::Result<()> {
 
     let mut interpreter = Interpreter::new(config);
     while !interpreter.should_exit() {
-        match console::read() {
-            Some(line) => interpreter.evaluate_and_print(&line).await,
-            None => break,
+        // Keep one blocking stdin read alive while the async side services the
+        // absolute commissioner keep-alive deadline. Reusing the same task
+        // after a timer tick avoids starting multiple readers for stdin.
+        let mut input = tokio::task::spawn_blocking(console::read);
+        loop {
+            let input_result = match interpreter.keepalive_deadline() {
+                Some(deadline) => {
+                    tokio::select! {
+                        biased;
+                        () = tokio::time::sleep_until(deadline) => {
+                            if let Err(err) = interpreter.handle_scheduled_keepalive().await {
+                                console::write(&format!("keep-alive failed: {err}"), Color::Red);
+                            }
+                            None
+                        },
+                        result = &mut input => Some(result),
+                    }
+                }
+                None => Some((&mut input).await),
+            };
+
+            let Some(input_result) = input_result else {
+                continue;
+            };
+            match input_result {
+                Ok(Some(line)) => {
+                    let line = Zeroizing::new(line);
+                    interpreter.evaluate_and_print(&line).await;
+                }
+                Ok(None) | Err(_) => return Ok(()),
+            }
+            break;
         }
     }
     Ok(())
