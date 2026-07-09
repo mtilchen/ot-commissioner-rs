@@ -1,10 +1,10 @@
 # Security Policy
 
 `ot-commissioner-rs` is a Thread MeshCoP commissioner. It handles highly
-sensitive material — the commissioner credential (PSKc), the Thread network key
-and full operational datasets, EC J-PAKE private scalars, and derived DTLS
-session keys. We take reports about it seriously and aim to handle them
-responsibly.
+sensitive material — the commissioner credential (PSKc), joiner credentials
+(PSKd), the Thread network key and full operational datasets, EC J-PAKE private
+scalars, and derived DTLS session keys. We take reports about it seriously and
+aim to handle them responsibly.
 
 ## Supported Versions
 
@@ -47,16 +47,19 @@ There is no paid bug-bounty program for this project.
 ### Assets
 
 - **PSKc** — the commissioner credential.
+- **PSKd** — a joiner's commissioning credential.
 - **Thread network key** and **active/pending operational datasets**.
 - **EC J-PAKE private scalars** and **derived DTLS session / record-protection
   keys**.
 
 ### Security goals and built-in mitigations
 
-- **Secret hygiene.** PSKc, J-PAKE scalars, datasets, and record-protection keys
-  are redacted in `Debug` output and zeroized on drop (`zeroize`). Examples
-  redact dataset secrets by default and only print raw secrets behind an
-  explicit opt-in.
+- **Secret hygiene.** Library-owned PSKc, PSKd, J-PAKE scalars, datasets, and
+  record-protection keys are redacted in `Debug` output and best-effort
+  zeroized when replaced or dropped (`zeroize`). Explicit raw access exposes
+  borrowed secret views, while owned encodings and typed copies become
+  caller-managed values. Examples redact dataset secrets by default and only
+  print raw secrets behind an explicit opt-in.
 - **Memory safety.** The crate contains **no `unsafe` code**.
 - **Constant-time primitives** are used where applicable (`subtle` and the
   underlying RustCrypto crates) to avoid obvious secret-dependent branching in
@@ -65,9 +68,10 @@ There is no paid bug-bounty program for this project.
   AES-128-CCM-8 record protection per the Thread specification, including a
   64-bit sliding-window anti-replay filter.
 - **Hardened parsers.** Every wire parser (TLV, dataset, CoAP, DTLS
-  record/handshake, EC J-PAKE codecs) is exercised by coverage-guided fuzzing
-  and mutation testing; malformed input must return an error rather than panic,
-  hang, over-read, or leak.
+  record/handshake, EC J-PAKE codecs) has a coverage-guided fuzz target. The
+  highest-risk protocol paths also gate on targeted mutation testing;
+  malformed input must return an error rather than panic, hang, over-read, or
+  leak.
 - **Safe-by-default operations.** Mutating live operations are gated behind
   `OT_COMMISSIONER_MUTATE_OK=1`, and read-only example/inspection paths resign
   the commissioner session before exit.
@@ -102,8 +106,9 @@ We are explicit about what this library does **not** claim to protect against:
 
 ## Handling secrets when using this crate
 
-- Do not log datasets or PSKc. Rely on the redaction defaults; only print raw
-  secrets in controlled debugging contexts.
+- Do not log datasets, PSKc, or PSKd. Rely on the redaction defaults; only
+  export or print raw secrets in controlled debugging contexts, and treat
+  borrowed raw views and returned owned values as exposed secret material.
 - Keep live, mutating operations behind `OT_COMMISSIONER_MUTATE_OK=1`.
 - Live border-router tests are `#[ignore]` by default and must not print or
   otherwise leak datasets, PSKc, or network keys.

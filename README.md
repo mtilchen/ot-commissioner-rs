@@ -26,9 +26,12 @@ commissioner rather than a partial reimplementation.
   dependency and attack surface small, and is memory-safe by construction.
 - **Async-native.** A Tokio-facing client API; the underlying protocol state
   machines are runtime-neutral and independently testable.
-- **Credential-safe by design.** PSKc, network keys, J-PAKE scalars, datasets,
-  and derived session keys are redacted in `Debug` and zeroized on drop, and
-  `unwrap`/`expect` are lint-forbidden in production code.
+- **Credential-safe by design.** Library-owned PSKc, network keys, joiner
+  PSKds, J-PAKE scalars, datasets, and derived session keys are redacted in
+  `Debug` and best-effort zeroized when replaced or dropped. Explicit raw
+  access still exposes secret material, and owned encodings become
+  caller-managed secret buffers. `unwrap`/`expect` are lint-forbidden in
+  production code.
 - **Held to a high assurance bar.** Deterministic and gated-live tests, coverage
   gates, mutation testing, fuzzing of every wire parser, and supply-chain
   checks — all CI-enforced (see [below](#security-and-quality)).
@@ -92,23 +95,26 @@ network.
 
 ## Security and Quality
 
-This crate handles sensitive Thread credentials — PSKc, network keys, and full
-operational datasets — and is built and tested accordingly. See
+This crate handles sensitive Thread credentials — PSKc, joiner PSKds, network
+keys, and full operational datasets — and is built and tested accordingly. See
 [SECURITY.md](SECURITY.md) for the threat model and the vulnerability-disclosure
 process.
 
 - **Pure Rust, no `unsafe`.** `#![forbid(unsafe_code)]`; built on small
   RustCrypto crates with no OpenSSL or mbedTLS runtime dependency.
-- **Secret hygiene.** PSKc, J-PAKE scalars, datasets, and record-protection keys
-  are redacted in `Debug` and zeroized on drop; constant-time primitives
-  (`subtle` / RustCrypto) are used where applicable.
-- **Tests.** 220 deterministic tests plus gated live border-router tests,
-  including in-memory DTLS client-against-server handshakes, an in-process
-  loopback DTLS server exercising the Tokio session driver, and a complete
-  fake-joiner commissioning flow. Testing policy: no public commissioner
-  operation lands without a scripted API test, no wire parser lands without
-  malformed-input coverage, and crypto/protocol state machines carry
-  negative-path tests, not only happy-path vectors.
+- **Secret hygiene.** Library-owned PSKc, joiner PSKds, J-PAKE scalars,
+  datasets, and record-protection keys are redacted in `Debug` and best-effort
+  zeroized when replaced or dropped. `Dataset::raw` and `Dataset::entries`
+  deliberately expose borrowed secret views; `to_bytes`, `to_hex`, and typed
+  accessors that copy secret fields create caller-managed values. Constant-time
+  primitives (`subtle` / RustCrypto) are used where applicable.
+- **Tests.** The deterministic suite includes in-memory DTLS
+  client-against-server handshakes, an in-process loopback DTLS server
+  exercising the Tokio session driver, and a complete fake-joiner
+  commissioning flow, plus gated live border-router tests. Testing policy: no
+  public commissioner operation lands without a scripted API test, no wire
+  parser lands without malformed-input coverage, and crypto/protocol state
+  machines carry negative-path tests, not only happy-path vectors.
 - **Live interop (CI-enforced).** Every change commissions a real OpenThread
   border agent (posix `ot-daemon` at a pinned release, driven by a simulated
   RCP) via [interop.yml](.github/workflows/interop.yml): the full DTLS 1.2 +
@@ -176,11 +182,11 @@ model):
 - **CCM (token/certificate) commissioning is not implemented** and returns
   `Error::Unsupported`. The supported authentication path is EC J-PAKE over
   PSKc.
-- **Deferred mutation survivors.** A small number of `cargo-mutants` survivors
-  remain in the async DTLS handshake-receive driver; killing them requires an
-  in-process DTLS server that emits real handshake flights, which is tracked as
-  follow-up work. Remaining survivors elsewhere are documented as equivalent
-  mutants.
+- **Documented mutation exclusions.** Remaining exclusions are limited to
+  equivalent transformations, behavior that is intrinsically unobservable in
+  safe Rust, intentionally uncontracted diagnostic output, and mutations whose
+  detected failure mode is non-termination. Each is catalogued in
+  [docs/MUTATION_SURVIVORS.md](docs/MUTATION_SURVIVORS.md).
 - **Side-channel scope.** Constant-time primitives are used, but the crate is
   not hardened against power, EM, or microarchitectural side channels.
 - **Pre-1.0 API.** Public APIs may change before 1.0.

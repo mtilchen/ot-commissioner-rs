@@ -71,8 +71,14 @@ mbedTLS at runtime.
 
 ## Conventions and gotchas worth knowing
 
-- Secrets (PSKc, J-PAKE scalars, datasets) are redacted in `Debug` and zeroized
-  on drop. Examples redact dataset fields unless `--show-secrets` is passed.
+- Library-owned secrets (PSKc, PSKd, J-PAKE scalars, datasets, and derived
+  keys) are redacted in `Debug` and best-effort zeroized when replaced or
+  dropped. Explicit raw access exposes secrets, and owned exports are
+  caller-managed. Examples redact dataset fields unless `--show-secrets` is
+  passed.
+- Keep-alives are application-driven: schedule `Commissioner::keep_alive()`
+  using `CommissionerConfig::keepalive_interval`. The bundled REPL and
+  `netdiag` collector do this while their sessions are active.
 - Live border-router tests are `#[ignore]` and require a real agent plus
   `ESP_MATTER_TEST_THREAD_DATASET_HEX`; they must not leak secrets.
 - Mutating CLI/example operations are gated behind `OT_COMMISSIONER_MUTATE_OK=1`.

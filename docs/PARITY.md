@@ -79,10 +79,14 @@ OpenThread's wire behavior instead of the C++ code:
 ## Async model
 
 The C++ library is callback-driven over libevent and re-arms an internal
-keep-alive timer. This crate is `async`/await-driven: `keep_alive()` is
-awaited by the caller on the configured `keepalive_interval`
-(`CommissionerConfig::keepalive_interval`), and unsolicited traffic is
-consumed through `Commissioner::next_event()`. Examples and live tests
+keep-alive timer. This crate is `async`/await-driven and does not spawn a
+background commissioner task: the application awaits `keep_alive()` on the
+configured `CommissionerConfig::keepalive_interval`, while unsolicited traffic
+is consumed through `Commissioner::next_event()`. Intervals are validated
+against the reference's inclusive 30–45 second range. The bundled REPL services
+an absolute keep-alive deadline while waiting for input and disconnects after a
+failed or non-accepting response; the `netdiag` collector sends proactively
+before a diagnostic wait could cross the same deadline. Examples and live tests
 resign before exiting, per the working agreement.
 
 ## App-layer features (`src/app`, CLI) — out of library scope
