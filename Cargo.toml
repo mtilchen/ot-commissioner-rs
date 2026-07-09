@@ -8,7 +8,6 @@ description = "Rust foundations for OpenThread commissioner sessions over MeshCo
 
 [features]
 default = []
-ot-commissioner-cxx = []
 # The `ot-commissioner-rs` REPL binary, a faithful reimplementation of the C++
 # `ot-commissioner` CLI. Off by default so the library's dependency surface stays
 # minimal; build/run with `--features cli`.
