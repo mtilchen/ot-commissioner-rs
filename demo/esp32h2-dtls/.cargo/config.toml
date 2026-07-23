@@ -1,0 +1,11 @@
+[target.riscv32imac-unknown-none-elf]
+runner = "espflash flash --monitor --chip esp32h2"
+
+[build]
+# Frame pointers let esp-backtrace unwind RISC-V faults. This is the only
+# target rustflag in the current stable esp-generate template.
+rustflags = ["-C", "force-frame-pointers"]
+target = "riscv32imac-unknown-none-elf"
+
+[unstable]
+build-std = ["alloc", "core"]

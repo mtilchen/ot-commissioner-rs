@@ -1,0 +1,43 @@
+[package]
+name = "esp32h2-dtls-demo"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[workspace]
+members = ["."]
+resolver = "3"
+
+[features]
+default = []
+role-client = []
+role-server = []
+
+[dependencies]
+embassy-executor = { version = "=0.10.0" }
+embassy-time = { version = "=0.5.1" }
+embedded-hal-async = { version = "=1.0.0" }
+embedded-io-async = { version = "=0.7.0" }
+embedded-nal-async = { version = "=0.9.0" }
+esp-alloc = { version = "=0.10.0", features = ["esp32h2"] }
+esp-backtrace = { version = "=0.19.0", features = ["esp32h2", "panic-handler", "println"] }
+esp-bootloader-esp-idf = { version = "=0.5.0", features = ["esp32h2"] }
+esp-hal = { version = "=1.1.1", features = ["esp32h2", "unstable"] }
+esp-println = { version = "=0.17.0", features = ["esp32h2"] }
+esp-radio = { version = "=0.18.0", default-features = false, features = ["esp32h2", "ieee802154", "unstable"] }
+esp-rtos = { version = "=0.3.0", features = ["embassy", "esp-alloc", "esp32h2"] }
+ieee802154 = { version = "=0.6.1" }
+rand_core = { version = "=0.6.4", default-features = false }
+thread-dtls = { path = "../../crates/thread-dtls", default-features = false, features = ["embedded"] }
+
+[profile.dev]
+opt-level = "s"
+panic = "abort"
+
+[profile.release]
+codegen-units = 1
+debug = 2
+lto = "fat"
+opt-level = "s"
+panic = "abort"

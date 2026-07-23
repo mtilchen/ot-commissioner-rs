@@ -5,7 +5,7 @@ resolver = "3"
 members = ["crates/thread-dtls", "crates/ot-commissioner-rs", "crates/ot-commissioner-cli"]
 # The cargo-fuzz crate is nightly-only and keeps its own workspace so it never
 # joins the stable build graph.
-exclude = ["fuzz"]
+exclude = ["fuzz", "demo/esp32h2-dtls"]
 
 [workspace.package]
 version = "0.1.0"
