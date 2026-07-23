@@ -354,3 +354,92 @@ fn mermaid_graph(snapshot: &TopologySnapshot) -> String {
 fn mermaid_id(rloc16: &str) -> String {
     format!("N{}", rloc16.trim_start_matches("0x"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Discovery, Link, LinkView, Node, Role};
+    use crate::test_fixtures::topology_fixture;
+
+    #[test]
+    fn topology_report_renders_fixture_network_nodes_and_links() {
+        let mut snapshot = topology_fixture();
+        snapshot
+            .nodes
+            .push(Node::skeleton(0x0402, Role::Child, Discovery::ParentTable));
+        snapshot
+            .nodes
+            .push(Node::skeleton(0x0403, Role::Child, Discovery::ParentTable));
+        let report = topology_markdown(&snapshot);
+
+        for expected in [
+            "# Thread network diagnostic report",
+            "| Network name | fixture-net |",
+            "| Channel | 15 (page 0) |",
+            "| Routers | 2 |",
+            "| Children | 3 |",
+            "N0400[\"0x0400<br/>leader\"]",
+            "N0400 ---|\"lq 3/2\"| N0800",
+            "N0400 -->|\"child lq 3\"| N0401",
+            "| mesh | 0x0400 | 0x0800 | in 3 / out 2 | both views collected |",
+            "| parent-child | 0x0400 | 0x0401 | in 3 | timeout 32s |",
+            "Network data prefixes:",
+            "| `fd11:2233:4455:6677::/64` | 6lo cid 1 | 0x0400 [padcronD] | 0x0800 |",
+            "ifOutErrors",
+        ] {
+            assert!(report.contains(expected), "missing report text: {expected}");
+        }
+    }
+
+    #[test]
+    fn node_report_and_json_render_the_same_fixture_data() {
+        let snapshot = topology_fixture();
+        let leader = &snapshot.nodes[0];
+        let markdown = node_report_markdown(leader);
+        assert!(markdown.starts_with("# Node 0x0400 diagnostic report"));
+        assert!(markdown.contains("| Mode | rx-on ftd, network data: full |"));
+        assert!(markdown.contains("| Connectivity | parent priority 1"));
+        assert!(markdown.contains("| Leader data | partition 0x12345678"));
+        assert!(markdown.contains("| Battery | 87% |"));
+        assert!(markdown.contains("- `fd11:2233:4455:6677::1`"));
+        assert!(markdown.contains("| 0x0800 | neighbor | 3 | 2 | 1 |"));
+        assert!(markdown.contains("| 0x0401 | 32s | 3 | sleepy mtd |"));
+
+        let json = serde_json::to_value(&snapshot).expect("fixture serializes");
+        assert_eq!(json["network"]["network_name"], "fixture-net");
+        assert_eq!(json["nodes"][0]["role"], "leader");
+        assert_eq!(json["nodes"][1]["discovery"], "unreachable");
+        assert_eq!(json["links"][1]["kind"], "parent-child");
+    }
+
+    #[test]
+    fn one_sided_and_unknown_mesh_views_render_in_a_perspective() {
+        let mut snapshot = topology_fixture();
+        snapshot.links = vec![
+            Link::Mesh {
+                a: "0x0400".to_string(),
+                b: "0x0800".to_string(),
+                a_view: None,
+                b_view: Some(LinkView {
+                    lq_in: 1,
+                    lq_out: 2,
+                }),
+            },
+            Link::Mesh {
+                a: "0x0800".to_string(),
+                b: "0x0c00".to_string(),
+                a_view: None,
+                b_view: None,
+            },
+        ];
+        snapshot
+            .nodes
+            .push(Node::skeleton(0x0c00, Role::Router, Discovery::DirectQuery));
+
+        let report = topology_markdown(&snapshot);
+        assert!(report.contains("N0400 ---|\"lq 2/1\"| N0800"));
+        assert!(report.contains("| mesh | 0x0400 | 0x0800 | in 2 / out 1 (from B) |"));
+        assert!(report.contains("N0800 ---|\"lq ?\"| N0c00"));
+        assert!(report.contains("| mesh | 0x0800 | 0x0c00 | unknown | one-sided view |"));
+    }
+}

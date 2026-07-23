@@ -399,6 +399,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ot-netdiag"
+version = "0.1.0"
+dependencies = [
+ "argh",
+ "hex",
+ "ot-commissioner-rs",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "p256"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

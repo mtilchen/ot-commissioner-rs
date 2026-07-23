@@ -2,7 +2,12 @@
 # Virtual manifests carry no edition, so the resolver must be explicit.
 # "3" is the edition-2024 default.
 resolver = "3"
-members = ["crates/thread-dtls", "crates/ot-commissioner-rs", "crates/ot-commissioner-cli"]
+members = [
+    "crates/thread-dtls",
+    "crates/ot-commissioner-rs",
+    "crates/ot-commissioner-cli",
+    "crates/ot-netdiag",
+]
 # The cargo-fuzz crate is nightly-only and keeps its own workspace so it never
 # joins the stable build graph.
 exclude = ["fuzz", "demo/esp32h2-dtls"]

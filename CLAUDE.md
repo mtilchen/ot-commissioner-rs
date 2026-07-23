@@ -95,6 +95,8 @@ two-node OpenThread IPv6 network.
   `ot-commissioner-rs`), formerly the library's `cli` feature. Run it with
   `cargo run -p ot-commissioner-cli`. Its scripted tests use the library's
   `test-support` feature.
+- `crates/ot-netdiag` — the read-only Thread network topology and diagnostics
+  collector. Run it with `cargo run -p ot-netdiag -- --help`.
 
 ## Conventions and gotchas worth knowing
 

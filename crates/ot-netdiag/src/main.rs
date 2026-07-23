@@ -1,4 +1,4 @@
-//! `netdiag` — a network-diagnostic topology mapper for Thread.
+//! `ot-netdiag` — a network-diagnostic topology mapper for Thread.
 //!
 //! Connects to a Thread network through a border agent (PSKc commissioner
 //! authentication), then walks the mesh with MeshCoP network-diagnostic
@@ -7,12 +7,16 @@
 //! can fetch a single node's diagnostics on demand.
 //!
 //! ```text
-//! netdiag --border-agent 192.0.2.1:49154 --pskc <32-hex> topology --format markdown
-//! netdiag --border-agent 192.0.2.1:49154 --pskc <32-hex> node --rloc16 0xa400 --format json
+//! ot-netdiag --border-agent 192.0.2.1:49154 --pskc <32-hex> topology --format markdown
+//! ot-netdiag --border-agent 192.0.2.1:49154 --pskc <32-hex> node --rloc16 0xa400 --format json
 //! ```
 //!
 //! The tool is strictly read-only: it never writes datasets or mutates the
 //! network. It always resigns the commissioner session before exiting.
+
+#![forbid(unsafe_code)]
+#![warn(missing_docs)]
+#![warn(clippy::unwrap_used, clippy::expect_used)]
 
 use std::net::SocketAddr;
 use std::process::ExitCode;
@@ -28,6 +32,8 @@ mod collect;
 mod graph;
 mod model;
 mod report;
+#[cfg(test)]
+mod test_fixtures;
 
 use collect::Collector;
 

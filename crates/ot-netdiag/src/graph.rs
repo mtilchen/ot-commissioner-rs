@@ -149,3 +149,81 @@ fn own_view(own: Option<LinkView>, peer: Option<LinkView>) -> Option<LinkView> {
         })
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Discovery, Link, LinkView, Node, Role};
+    use crate::test_fixtures::topology_fixture;
+
+    #[test]
+    fn ascii_layout_places_children_under_parents_and_summarizes_mesh() {
+        let graph = topology_ascii(&topology_fixture());
+
+        assert!(graph.starts_with("fixture-net\n  channel 15, pan 0x1234\n"));
+        assert!(graph.contains("├─ [LEADER] 0x0400"));
+        assert!(graph.contains("│  · mesh links: 0x0800 (lq 3/2)"));
+        assert!(graph.contains("│  · neighbors lq3/lq2/lq1 = 2/1/0, leader cost 1"));
+        assert!(graph.contains("│  └─ 0x0401 [sleepy mtd] (parent-table only)"));
+        assert!(graph.contains("└─ [router] 0x0800  (unreachable)"));
+        assert!(graph.contains("   · mesh links: 0x0400 (lq 2/3)"));
+        assert!(graph.ends_with("2 routers, 1 children, 2 links\n"));
+    }
+
+    #[test]
+    fn layout_handles_missing_metadata_and_peer_only_link_views() {
+        let mut snapshot = topology_fixture();
+        snapshot.network.network_name = None;
+        snapshot.network.channel = None;
+        snapshot.nodes.clear();
+
+        let mut leader = Node::skeleton(0x0400, Role::Leader, Discovery::DirectQuery);
+        leader.connectivity = None;
+        let mut first_child = Node::skeleton(0x0401, Role::Child, Discovery::DirectQuery);
+        first_child.parent_rloc16 = Some("0x0400".to_string());
+        let mut last_child = Node::skeleton(0x0402, Role::Child, Discovery::ParentTable);
+        last_child.parent_rloc16 = Some("0x0400".to_string());
+        snapshot.nodes = vec![leader, first_child, last_child];
+        snapshot.links = vec![Link::Mesh {
+            a: "0x0400".to_string(),
+            b: "0x0800".to_string(),
+            a_view: None,
+            b_view: Some(LinkView {
+                lq_in: 1,
+                lq_out: 2,
+            }),
+        }];
+
+        let graph = topology_ascii(&snapshot);
+        assert!(graph.starts_with("Thread network\n\n"));
+        assert!(graph.contains("· mesh links: 0x0800 (lq 2/1)"));
+        assert!(graph.contains("├─ 0x0401 [child]\n"));
+        assert!(graph.contains("└─ 0x0402 [child] (parent-table only)"));
+
+        snapshot.links = vec![Link::Mesh {
+            a: "0x0400".to_string(),
+            b: "0x0800".to_string(),
+            a_view: None,
+            b_view: None,
+        }];
+        assert!(topology_ascii(&snapshot).contains("· mesh links: 0x0800"));
+    }
+
+    #[test]
+    fn own_view_prefers_local_data_and_reverses_peer_data() {
+        let local = LinkView {
+            lq_in: 3,
+            lq_out: 2,
+        };
+        let peer = LinkView {
+            lq_in: 1,
+            lq_out: 2,
+        };
+
+        let preferred = own_view(Some(local), Some(peer)).expect("local view is retained");
+        assert_eq!((preferred.lq_in, preferred.lq_out), (3, 2));
+        let reversed = own_view(None, Some(peer)).expect("peer view is available");
+        assert_eq!((reversed.lq_in, reversed.lq_out), (2, 1));
+        assert!(own_view(None, None).is_none());
+    }
+}

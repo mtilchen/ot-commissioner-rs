@@ -90,12 +90,13 @@ async fn main() -> ot_commissioner_rs::Result<()> {
 }
 ```
 
-The [`examples/`](crates/ot-commissioner-rs/examples) directory has runnable tools built on this API: a
-network-diagnostic topology mapper (`netdiag`), read-only live probes, and a
-small `commissionerctl`. Examples redact dataset secrets by default and resign
-read-only sessions before exiting; mutating operations are gated behind
-`OT_COMMISSIONER_MUTATE_OK=1` so routine inspection cannot disturb a live
-network.
+The `ot-netdiag` crate provides a network-diagnostic topology mapper; run it
+with `cargo run -p ot-netdiag -- --help`. The
+[`examples/`](crates/ot-commissioner-rs/examples) directory also has read-only
+live probes and a small `commissionerctl`. These tools redact dataset secrets
+by default and resign read-only sessions before exiting; mutating operations
+are gated behind `OT_COMMISSIONER_MUTATE_OK=1` so routine inspection cannot
+disturb a live network.
 
 ## Security and Quality
 

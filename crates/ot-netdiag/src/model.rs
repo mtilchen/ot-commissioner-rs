@@ -510,3 +510,87 @@ fn format_prefix(prefix: &[u8], bit_length: u8) -> String {
     octets[..len].copy_from_slice(&prefix[..len]);
     format!("{}/{bit_length}", Ipv6Addr::from(octets))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_fixtures::{diagnostic_fixture, topology_fixture};
+
+    #[test]
+    fn diagnostic_data_populates_every_supported_node_section() {
+        let node = Node::from_diag(0x0400, Role::Leader, &diagnostic_fixture());
+
+        assert_eq!(node.rloc16, "0x0400");
+        assert_eq!(node.router_id, 1);
+        assert_eq!(node.child_id, None);
+        assert_eq!(node.discovery, Discovery::DirectQuery);
+        assert_eq!(node.ext_mac_address.as_deref(), Some("0200000000000001"));
+        assert_eq!(node.eui64.as_deref(), Some("0200000000000002"));
+        assert_eq!(node.timeout_seconds, Some(300));
+        assert_eq!(node.ipv6_addresses, ["fd11:2233:4455:6677::1"]);
+
+        let mode = node.mode.expect("fixture has mode data");
+        assert!(mode.rx_on_when_idle);
+        assert_eq!(mode.device_type, "ftd");
+        assert!(mode.full_network_data);
+
+        let connectivity = node.connectivity.expect("fixture has connectivity");
+        assert_eq!(connectivity.parent_priority, 1);
+        assert_eq!(connectivity.link_quality_3_neighbors, 2);
+        assert_eq!(connectivity.id_sequence, 7);
+        assert_eq!(connectivity.rx_off_child_buffer_size, Some(1280));
+
+        let leader = node.leader_data.expect("fixture has leader data");
+        assert_eq!(leader.partition_id, 0x1234_5678);
+        assert_eq!(leader.leader_router_id, 1);
+
+        assert_eq!(node.route_table.len(), 5);
+        assert_eq!(node.route_table[0].relation, "self");
+        assert_eq!(node.route_table[1].relation, "neighbor");
+        assert_eq!(node.route_table[2].relation, "multihop");
+        assert_eq!(node.route_table[3].relation, "neighbor");
+        assert_eq!(node.route_table[4].relation, "neighbor");
+        assert_eq!(node.route_table[1].rloc16, "0x0800");
+
+        assert_eq!(node.child_table.len(), 1);
+        assert_eq!(node.child_table[0].rloc16, "0x0401");
+        assert_eq!(node.child_table[0].timeout_seconds, 32);
+        assert_eq!(node.battery_level_percent, Some(87));
+        assert_eq!(node.supply_voltage_mv, Some(3_300));
+        assert_eq!(node.channel_pages, Some(vec![0, 2]));
+
+        let counters = node.mac_counters.expect("fixture has counters");
+        assert_eq!(counters.if_in_unknown_protos, 1);
+        assert_eq!(counters.if_out_discards, 9);
+
+        let prefix = &node.network_data_prefixes[0];
+        assert_eq!(prefix.prefix, "fd11:2233:4455:6677::/64");
+        assert_eq!(prefix.six_lowpan_context_id, Some(1));
+        assert_eq!(prefix.has_route[0].rloc16, "0x0800");
+        assert!(prefix.has_route[0].nat64);
+        assert_eq!(prefix.border_routers[0].flags, "padcronD");
+    }
+
+    #[test]
+    fn skeleton_helpers_and_redaction_preserve_topology_shape() {
+        assert_eq!(format_rloc16(1), "0x0001");
+        assert_eq!(router_id(0xfc01), 63);
+        assert_eq!(child_id(0x0400), None);
+        assert_eq!(child_id(0x0401), Some(1));
+
+        let unreachable = Node::unreachable(0x0800);
+        assert_eq!(unreachable.discovery, Discovery::Unreachable);
+        assert_eq!(unreachable.role, Role::Router);
+
+        let mut snapshot = topology_fixture();
+        snapshot.redact_secrets();
+        assert_eq!(snapshot.network.extended_pan_id.as_deref(), Some(REDACTED));
+        assert_eq!(
+            snapshot.network.mesh_local_prefix.as_deref(),
+            Some(REDACTED)
+        );
+        assert_eq!(snapshot.nodes[0].ipv6_addresses, [REDACTED]);
+        assert_eq!(snapshot.nodes.len(), 3);
+        assert_eq!(snapshot.links.len(), 2);
+    }
+}
