@@ -250,6 +250,141 @@ async fn dtls_session_connect_fails_against_wrong_pskc_server() -> crate::Result
     Ok(())
 }
 
+#[tokio::test]
+async fn dtls_server_accepts_cookie_retry_and_echoes_protected_payload() -> crate::Result<()> {
+    let server = DtlsServer::bind("127.0.0.1:0").await?;
+    let server_addr = server.local_addr();
+    let client_socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
+    client_socket.connect(server_addr).await?;
+    let pskc = [0x42; 16];
+
+    let server_task = async move {
+        let mut session = server
+            .accept(&pskc, core::time::Duration::from_secs(2))
+            .await?;
+        let request = session
+            .recv_application_data(core::time::Duration::from_secs(2))
+            .await
+            .map_err(crate::Error::from)?;
+        session
+            .send_application_data(&request)
+            .await
+            .map_err(crate::Error::from)?;
+        crate::Result::Ok(session.key_material().master_secret)
+    };
+    let client_task = async {
+        let mut session =
+            DtlsSession::connect(&client_socket, &pskc, core::time::Duration::from_secs(2)).await?;
+        let response = session
+            .request_application_data(
+                &client_socket,
+                b"cookie-verified echo",
+                core::time::Duration::from_secs(2),
+            )
+            .await?;
+        crate::Result::Ok((response, session.key_material().master_secret))
+    };
+
+    let (server_result, client_result) = tokio::join!(server_task, client_task);
+    let server_secret = server_result?;
+    let (response, client_secret) = client_result?;
+    assert_eq!(response, b"cookie-verified echo");
+    assert_eq!(server_secret, client_secret);
+    Ok(())
+}
+
+#[tokio::test]
+async fn dtls_server_and_client_reject_wrong_pskc() -> crate::Result<()> {
+    let server = DtlsServer::bind("127.0.0.1:0").await?;
+    let server_addr = server.local_addr();
+    let client_socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
+    client_socket.connect(server_addr).await?;
+
+    let server_task = server.accept(&[0x42; 16], core::time::Duration::from_secs(2));
+    let client_task = DtlsSession::connect(
+        &client_socket,
+        &[0x43; 16],
+        core::time::Duration::from_secs(2),
+    );
+    let (server_result, client_result) = tokio::join!(server_task, client_task);
+    assert!(
+        server_result.is_err(),
+        "server must reject the client's Finished"
+    );
+    assert!(
+        client_result.is_err(),
+        "client must reject the server alert"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn dtls_server_ignores_wrong_epoch_record_before_cookie_exchange() -> crate::Result<()> {
+    let server = DtlsServer::bind("127.0.0.1:0").await?;
+    let server_addr = server.local_addr();
+    let client_socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
+    client_socket.connect(server_addr).await?;
+    let ignored = DtlsRecord::new(ContentType::Handshake, 1, 0, vec![0xff])?;
+    client_socket.send(&ignored.encode()?).await?;
+    let pskc = [0x42; 16];
+
+    let server_task = server.accept(&pskc, core::time::Duration::from_secs(2));
+    let client_task =
+        DtlsSession::connect(&client_socket, &pskc, core::time::Duration::from_secs(2));
+    let (server_result, client_result) = tokio::join!(server_task, client_task);
+    let server_session = server_result?;
+    let client_session = client_result?;
+    assert_eq!(
+        server_session.key_material().master_secret,
+        client_session.key_material().master_secret
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn dtls_server_reports_client_alert_after_cookie_validation() -> crate::Result<()> {
+    let server = DtlsServer::bind("127.0.0.1:0").await?;
+    let server_addr = server.local_addr();
+    let client_socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
+    client_socket.connect(server_addr).await?;
+    let pskc = [0x42; 16];
+
+    let client_task = async {
+        let mut rng = OsRng;
+        let client = ThreadDtlsHandshake::new(&pskc, &mut rng);
+        let mut hello_state = client.client_hello_state()?;
+        client_socket
+            .send(&hello_state.next_client_hello_record()?.encode()?)
+            .await?;
+        let verify_datagram = recv_one(&client_socket).await?;
+        let verify_records = DtlsRecord::parse_datagram(&verify_datagram)?;
+        hello_state.handle_hello_verify_request(&verify_records[0])?;
+        client_socket
+            .send(&hello_state.next_client_hello_record()?.encode()?)
+            .await?;
+
+        // Receiving the server flight proves that the server has committed to
+        // this cookie-validated peer and entered its session handshake loop.
+        let _server_flight = recv_one(&client_socket).await?;
+        let alert = DtlsRecord::new(ContentType::Alert, 0, 2, vec![2, 90])?;
+        client_socket.send(&alert.encode()?).await?;
+        crate::Result::Ok(())
+    };
+    let (server_result, client_result) = tokio::join!(
+        server.accept(&pskc, core::time::Duration::from_secs(2)),
+        client_task
+    );
+    client_result?;
+    assert!(
+        matches!(
+            server_result,
+            Err(crate::Error::Crypto(message)) if message.contains("description=90")
+        ),
+        "server must surface the selected peer's alert"
+    );
+    Ok(())
+}
+
 #[test]
 fn cookie_generator_binds_cookies_to_the_client_random() {
     let mut rng = OsRng;

@@ -48,10 +48,12 @@ the repo root, excluded from the workspace (nightly-only, its own lockfile).
   - `thread_handshake.rs` is the runtime-neutral client handshake state
     machine and `thread_server_handshake.rs` its server counterpart (used for
     joiner sessions; includes HelloVerifyRequest cookies and Joiner Router KEK
-    export); `session.rs` is the Tokio driver (`DtlsSession::connect`). Record
-    framing (`record.rs`), the TLS 1.2 PRF key schedule (`key_schedule.rs`),
-    and AES-128-CCM-8 record protection (`record_protection.rs`) live in
-    sibling files.
+    export); `driver.rs`, `client_driver.rs`, and `server_driver.rs` provide
+    runtime-generic client+server async drivers, with `tokio_session.rs`
+    preserving the `DtlsSession::connect` convenience API. Record framing
+    (`record.rs`), the TLS 1.2 PRF key schedule (`key_schedule.rs`), and
+    AES-128-CCM-8 record protection (`record_protection.rs`) live in sibling
+    files.
   - `error.rs` — this crate's own `thiserror` `Error`/`Result`.
   - `test_support.rs` — in-process loopback DTLS server for deterministic
     handshake tests, gated behind the `test-support` feature. Unit tests live

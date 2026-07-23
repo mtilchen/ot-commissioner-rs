@@ -430,7 +430,30 @@ mod tests {
     use tokio::net::UdpSocket;
 
     use super::super::key_schedule::Tls12Aes128Ccm8KeyBlock;
+    use super::super::test_support::{self, LoopbackEnd};
     use super::*;
+
+    #[tokio::test]
+    async fn original_client_driver_handshake_path_remains_covered() -> Result<()> {
+        let client = UdpSocket::bind("127.0.0.1:0").await?;
+        let server = UdpSocket::bind("127.0.0.1:0").await?;
+        client.connect(server.local_addr()?).await?;
+        server.connect(client.local_addr()?).await?;
+        let server_task = tokio::spawn(async move {
+            test_support::loopback_dtls_server(&server, &[0x42; 16], LoopbackEnd::Complete).await
+        });
+
+        let session = DtlsSession::connect(&client, &[0x42; 16], Duration::from_secs(2)).await?;
+        let server_keys = server_task
+            .await
+            .expect("server task panicked")?
+            .expect("server keys");
+        assert_eq!(
+            session.key_material().master_secret,
+            server_keys.master_secret
+        );
+        Ok(())
+    }
 
     #[tokio::test]
     async fn application_data_request_sends_and_receives_protected_records() -> Result<()> {
