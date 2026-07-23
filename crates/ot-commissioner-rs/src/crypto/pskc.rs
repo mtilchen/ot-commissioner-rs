@@ -3,7 +3,7 @@
 use aes::Aes128;
 use cmac::{Cmac, Mac};
 use sha2::{Digest, Sha256};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::{Result, dataset::Dataset, error::Error};
 
@@ -19,13 +19,56 @@ const MAX_STEERING_DATA_LEN: usize = 16;
 
 type Aes128Cmac = Cmac<Aes128>;
 
+/// The 128-bit pre-shared key for the Thread commissioner.
+///
+/// A PSKc is the EC J-PAKE password used to authenticate a commissioner to a
+/// border agent. Its contents are redacted from debug output and zeroized when
+/// dropped.
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+pub struct Pskc([u8; MAX_PSKC_LEN]);
+
+impl core::fmt::Debug for Pskc {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("Pskc").field(&"<redacted>").finish()
+    }
+}
+
+impl Pskc {
+    /// Creates a PSKc from its 16-byte representation.
+    pub const fn new(bytes: [u8; MAX_PSKC_LEN]) -> Self {
+        Self(bytes)
+    }
+
+    /// Parses a PSKc from exactly 32 hexadecimal digits.
+    pub fn from_hex(value: &str) -> Result<Self> {
+        let bytes = Zeroizing::new(hex::decode(value)?);
+        let bytes = bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| Error::Dataset("PSKc must be exactly 16 bytes".to_string()))?;
+        Ok(Self::new(bytes))
+    }
+
+    /// Returns the raw PSKc bytes.
+    pub const fn as_bytes(&self) -> &[u8; MAX_PSKC_LEN] {
+        &self.0
+    }
+}
+
+impl From<[u8; MAX_PSKC_LEN]> for Pskc {
+    fn from(bytes: [u8; MAX_PSKC_LEN]) -> Self {
+        Self::new(bytes)
+    }
+}
+
 /// Extracts the PSKc TLV from an active dataset.
-pub fn pskc_from_active_dataset(dataset: &Dataset) -> Result<[u8; MAX_PSKC_LEN]> {
-    dataset
+pub fn pskc_from_active_dataset(dataset: &Dataset) -> Result<Pskc> {
+    let bytes = dataset
         .pskc()
         .ok_or_else(|| Error::Dataset("dataset does not contain PSKc".to_string()))?
         .try_into()
-        .map_err(|_| Error::Dataset("PSKc TLV must be 16 bytes".to_string()))
+        .map_err(|_| Error::Dataset("PSKc TLV must be 16 bytes".to_string()))?;
+    Ok(Pskc::new(bytes))
 }
 
 /// Generates PSKc using Thread's PBKDF2-AES-CMAC-PRF-128 construction.
@@ -37,7 +80,7 @@ pub fn generate_pskc(
     passphrase: &str,
     network_name: &str,
     extended_pan_id: &[u8; EXTENDED_PAN_ID_LEN],
-) -> Result<[u8; MAX_PSKC_LEN]> {
+) -> Result<Pskc> {
     let passphrase_bytes = passphrase.as_bytes();
     if !(MIN_COMMISSIONER_CREDENTIAL_LEN..=MAX_COMMISSIONER_CREDENTIAL_LEN)
         .contains(&passphrase_bytes.len())
@@ -59,7 +102,7 @@ pub fn generate_pskc(
 
     let mut out = [0u8; MAX_PSKC_LEN];
     pbkdf2_aes_cmac_prf_128(passphrase_bytes, &salt, 16_384, &mut out)?;
-    Ok(out)
+    Ok(Pskc::new(out))
 }
 
 /// Computes the Thread joiner ID from an EUI-64.
@@ -189,16 +232,46 @@ mod tests {
             &[0, 1, 2, 3, 4, 5, 6, 7],
         )
         .unwrap();
-        assert_eq!(hex::encode(pskc), "c3f59368445a1b6106be420a706d4cc9");
+        assert_eq!(
+            hex::encode(pskc.as_bytes()),
+            "c3f59368445a1b6106be420a706d4cc9"
+        );
     }
 
     #[test]
     fn extracts_pskc_from_dataset() {
         let dataset = Dataset::from_hex("0410000102030405060708090a0b0c0d0e0f").unwrap();
         assert_eq!(
-            pskc_from_active_dataset(&dataset).unwrap(),
-            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+            pskc_from_active_dataset(&dataset).unwrap().as_bytes(),
+            &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
         );
+    }
+
+    #[test]
+    fn pskc_parses_hex_and_rejects_wrong_lengths() {
+        let pskc = Pskc::from_hex("000102030405060708090a0b0c0d0e0f").unwrap();
+        assert_eq!(
+            pskc.as_bytes(),
+            &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        );
+        assert!(Pskc::from_hex("0001").is_err());
+    }
+
+    #[test]
+    fn pskc_debug_is_redacted() {
+        let rendered = format!("{:?}", Pskc::new([0xab; MAX_PSKC_LEN]));
+        assert_eq!(rendered, "Pskc(\"<redacted>\")");
+        assert!(!rendered.contains("ab"));
+    }
+
+    #[test]
+    fn pskc_has_zeroize_on_drop_shape() {
+        fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+
+        assert_zeroize_on_drop::<Pskc>();
+        let mut pskc = Pskc::new([0xab; MAX_PSKC_LEN]);
+        pskc.zeroize();
+        assert_eq!(pskc.as_bytes(), &[0; MAX_PSKC_LEN]);
     }
 
     #[test]

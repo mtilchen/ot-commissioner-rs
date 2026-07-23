@@ -72,7 +72,7 @@ async fn main() -> ot_commissioner_rs::Result<()> {
     let dataset_hex = std::env::var("THREAD_DATASET_HEX").expect("dataset hex");
     let dataset = Dataset::from_hex(dataset_hex)?;
     let config = CommissionerConfig::from_dataset("my-commissioner", &dataset)?;
-    // ...or pass the 16-byte key straight in:
+    // ...or pass a Pskc (or a raw 16-byte array) straight in:
     //   let config = CommissionerConfig::pskc("my-commissioner", pskc_bytes);
 
     // Connect to the border agent (host:port) and run the DTLS EC J-PAKE

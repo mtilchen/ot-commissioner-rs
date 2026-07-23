@@ -12,7 +12,7 @@ mod joiner;
 mod types;
 
 pub use client::Commissioner;
-pub use config::CommissionerConfig;
+pub use config::{CommissionerConfig, CommissionerConfigBuilder};
 pub use joiner::{JoinerFinalizeInfo, JoinerHandler, StaticJoinerHandler, joiner_id_from_iid};
 pub use types::{
     CommissionerDatasetFlags, CommissionerEvent, CommissionerState, DatasetFlags, PetitionResponse,

@@ -20,14 +20,13 @@ use zeroize::Zeroizing;
 
 use crate::{
     Result,
-    crypto::RecordProtectionKey,
     error::Error,
     meshcop::{self, CoapCode, CoapMessage, CoapType},
     tlv::TlvSet,
 };
 use thread_dtls::{
     ContentType, DtlsCookieGenerator, DtlsRecord, HandshakeMessage, HandshakeType,
-    HelloVerifyRequest, ThreadDtlsKeyMaterial, ThreadDtlsServerHandshake,
+    HelloVerifyRequest, RecordProtectionKey, ThreadDtlsKeyMaterial, ThreadDtlsServerHandshake,
     open_aes_128_ccm_8_record, parse_unfragmented_handshake_messages, protect_aes_128_ccm_8_record,
 };
 

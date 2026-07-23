@@ -8,6 +8,7 @@ use zeroize::Zeroizing;
 
 use ot_commissioner_rs::{
     commissioner::CommissionerConfig,
+    crypto::Pskc,
     error::{Error, Result},
 };
 
@@ -114,12 +115,12 @@ impl CliConfig {
                 "PSKc must be exactly 16 bytes; set it with 'config set pskc'".to_string(),
             )
         })?;
-        let mut config = CommissionerConfig::pskc(self.id.clone(), pskc);
-        config.domain_name = self.domain_name.clone();
-        config.enable_ccm = self.enable_ccm;
-        config.keepalive_interval = Duration::from_secs(self.keep_alive_interval);
-        config.validate()?;
-        Ok(config)
+        CommissionerConfig::builder(self.id.clone())
+            .pskc(Pskc::new(pskc))
+            .domain_name(self.domain_name.clone())
+            .enable_ccm(self.enable_ccm)
+            .keepalive_interval(Duration::from_secs(self.keep_alive_interval))
+            .build()
     }
 }
 

@@ -67,9 +67,9 @@ two-node OpenThread IPv6 network.
   - `dataset.rs` — Operational dataset (`Dataset` = active/pending alias)
     built on `TlvSet`, with typed accessors (channel, PAN ID, security policy,
     timestamps, channel mask, …) that validate lengths.
-  - `crypto/` — now just `pskc.rs` (PSKc via PBKDF2-AES-CMAC-PRF-128, joiner
-    ID, steering-data Bloom filter) plus a re-export of
-    `thread_dtls::RecordProtectionKey` so callers keep a single key type.
+  - `crypto/` — now just `pskc.rs` (the redacted, zeroizing `Pskc` credential
+    type, PSKc derivation via PBKDF2-AES-CMAC-PRF-128, joiner ID, and
+    steering-data Bloom filter).
   - `meshcop/` — CoAP codec (`coap.rs`), MeshCoP request builders
     (`builders.rs`, incl. UDP_TX/RLY_TX encapsulation), response/notification
     parsers (`parsers.rs`, incl. UDP_RX decapsulation), URI + TLV constants,

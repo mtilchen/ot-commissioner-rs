@@ -6,15 +6,12 @@ use super::super::joiner::{
     JOINER_SESSION_TIMEOUT, JoinerSession, JoinerSessionEvent, parse_join_fin,
 };
 use super::*;
-use crate::{
-    crypto::RecordProtectionKey,
-    meshcop::{
-        TLV_PROVISIONING_URL, TLV_VENDOR_MODEL, TLV_VENDOR_NAME, TLV_VENDOR_STACK_VERSION,
-        TLV_VENDOR_SW_VERSION,
-    },
+use crate::meshcop::{
+    TLV_PROVISIONING_URL, TLV_VENDOR_MODEL, TLV_VENDOR_NAME, TLV_VENDOR_STACK_VERSION,
+    TLV_VENDOR_SW_VERSION,
 };
 use thread_dtls::{
-    ContentType, DtlsRecord, HandshakeType, ServerHello, ThreadDtlsHandshake,
+    ContentType, DtlsRecord, HandshakeType, RecordProtectionKey, ServerHello, ThreadDtlsHandshake,
     ThreadDtlsKeyMaterial, derive_joiner_router_kek, open_aes_128_ccm_8_record,
     parse_unfragmented_handshake_messages, parse_unfragmented_handshake_record,
     protect_aes_128_ccm_8_record,

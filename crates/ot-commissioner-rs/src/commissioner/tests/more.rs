@@ -201,7 +201,7 @@ async fn commissioner_runs_petition_over_a_real_dtls_session() {
                 }
                 let plaintext = thread_dtls::open_aes_128_ccm_8_record(
                     &record,
-                    crate::crypto::RecordProtectionKey::new(keys.key_block.client_write_key),
+                    thread_dtls::RecordProtectionKey::new(keys.key_block.client_write_key),
                     &keys.key_block.client_write_iv,
                 )
                 .unwrap();
@@ -220,7 +220,7 @@ async fn commissioner_runs_petition_over_a_real_dtls_session() {
                     ContentType::ApplicationData,
                     1,
                     1,
-                    crate::crypto::RecordProtectionKey::new(keys.key_block.server_write_key),
+                    thread_dtls::RecordProtectionKey::new(keys.key_block.server_write_key),
                     &keys.key_block.server_write_iv,
                     &response.encode().unwrap(),
                 )
