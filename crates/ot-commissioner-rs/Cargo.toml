@@ -8,10 +8,6 @@ license.workspace = true
 
 [features]
 default = []
-# The `ot-commissioner-rs` REPL binary, a faithful reimplementation of the C++
-# `ot-commissioner` CLI. Off by default so the library's dependency surface stays
-# minimal; build/run with `--features cli`.
-cli = ["dep:serde", "dep:serde_json"]
 # Deterministic scripted MeshCoP transport (`commissioner::harness`) and the
 # scripted-connect hooks on `Commissioner`, for driving the public API in
 # tests. Unstable test scaffolding for this workspace's suites; not a
@@ -28,9 +24,6 @@ sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 zeroize.workspace = true
-# CLI-only, pulled in solely by the `cli` feature.
-serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 thread-dtls = { workspace = true, features = ["test-support"] }
@@ -41,8 +34,3 @@ serde_json.workspace = true
 # instantly in deterministic CLI tests; process/io-util let the interop test
 # drive a simulated OpenThread joiner CLI as a child process.
 tokio = { workspace = true, features = ["test-util", "process", "io-util"] }
-
-[[bin]]
-name = "ot-commissioner-rs"
-path = "src/main.rs"
-required-features = ["cli"]

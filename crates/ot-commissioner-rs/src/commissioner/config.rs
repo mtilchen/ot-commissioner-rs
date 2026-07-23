@@ -67,7 +67,11 @@ impl CommissionerConfig {
         ))
     }
 
-    pub(crate) fn validate(&self) -> Result<()> {
+    /// Validates the config's bounded fields (currently just the keep-alive
+    /// interval, which must fall within the 30-45 second range the reference
+    /// commissioner uses). [`super::Commissioner::connect`] calls this
+    /// internally; callers may also use it to fail fast before connecting.
+    pub fn validate(&self) -> Result<()> {
         if !(MIN_KEEPALIVE_INTERVAL..=MAX_KEEPALIVE_INTERVAL).contains(&self.keepalive_interval) {
             return Err(Error::Configuration(
                 "keepalive interval must be between 30 and 45 seconds",

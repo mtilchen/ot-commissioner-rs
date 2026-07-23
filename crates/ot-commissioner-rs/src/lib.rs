@@ -31,10 +31,10 @@
 //! the coverage-guided fuzz harnesses can drive the wire parsers directly and
 //! so advanced users can build or inspect MeshCoP messages, but they are not
 //! the recommended entry point. The DTLS 1.2 profile and EC J-PAKE handshake
-//! live in the separate `thread-dtls` crate.
+//! live in the separate `thread-dtls` crate. The interactive REPL that
+//! reimplements the C++ `ot-commissioner` CLI on top of this library lives in
+//! the separate `ot-commissioner-cli` crate.
 
-#[cfg(feature = "cli")]
-pub mod cli;
 pub mod commissioner;
 pub mod crypto;
 pub mod dataset;

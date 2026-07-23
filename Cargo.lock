@@ -315,6 +315,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ot-commissioner-cli"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "ot-commissioner-rs",
+ "serde",
+ "serde_json",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "ot-commissioner-rs"
 version = "0.1.0"
 dependencies = [

@@ -1,7 +1,6 @@
 //! The `ot-commissioner-rs` interactive CLI binary: a faithful reimplementation
 //! of the C++ `ot-commissioner` command-line REPL on top of the pure-Rust
-//! commissioner library. The full command surface lives in
-//! [`ot_commissioner_rs::cli`].
+//! commissioner library. The full command surface lives in [`crate::cli`].
 //!
 //! ```text
 //! ot-commissioner-rs -h|--help
@@ -10,9 +9,16 @@
 //! ot-commissioner-rs [-r|--registry <registryFileName>] [configFileName]
 //! ```
 
+#![forbid(unsafe_code)]
+#![warn(missing_docs)]
+// `unwrap`/`expect` are prohibited in production code (allowed in tests via
+// `allow-{unwrap,expect}-in-tests` in `clippy.toml`). `cargo clippy -- -D
+// warnings` promotes these to hard errors.
+#![warn(clippy::unwrap_used, clippy::expect_used)]
+
 use std::process::ExitCode;
 
-use ot_commissioner_rs::cli;
+mod cli;
 
 #[tokio::main]
 async fn main() -> ExitCode {

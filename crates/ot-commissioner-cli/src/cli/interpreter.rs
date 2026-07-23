@@ -1,11 +1,11 @@
 //! The REPL command interpreter: a faithful reimplementation of the C++
 //! `ot-commissioner` CLI command surface, backed by the pure-Rust library.
 //!
-//! Commands that exercise the non-CCM commissioner protocol are fully wired to
-//! [`crate::commissioner`]. Commands outside that scope (CCM token flows, the
-//! persistent network registry, mDNS discovery, and multi-network `--nwk`/
-//! `--dom` job execution) are present with their exact usage and report
-//! `[failed]` with an explanatory message.
+//! Commands that exercise the non-CCM commissioner protocol are fully wired
+//! to [`ot_commissioner_rs::commissioner`]. Commands outside that scope (CCM
+//! token flows, the persistent network registry, mDNS discovery, and
+//! multi-network `--nwk`/`--dom` job execution) are present with their exact
+//! usage and report `[failed]` with an explanatory message.
 
 use std::collections::HashMap;
 use std::net::{Ipv6Addr, SocketAddr};
@@ -14,7 +14,7 @@ use std::time::Duration;
 use serde_json::json;
 use zeroize::Zeroizing;
 
-use crate::{
+use ot_commissioner_rs::{
     commissioner::{
         Commissioner, CommissionerDatasetFlags, CommissionerEvent, CommissionerState, DatasetFlags,
         ResultCode, StaticJoinerHandler,
@@ -86,15 +86,17 @@ impl Interpreter {
     /// An accepted response re-arms the absolute deadline. Pending, rejected,
     /// and failed exchanges disconnect the unusable session so the application
     /// cannot continue without keep-alives.
-    pub(super) async fn handle_scheduled_keepalive(&mut self) -> crate::Result<()> {
+    pub(super) async fn handle_scheduled_keepalive(&mut self) -> ot_commissioner_rs::Result<()> {
         self.keepalive_deadline = None;
         let (result, deferred_events, callback_result) = {
-            let commissioner = self
-                .commissioner
-                .as_mut()
-                .ok_or(crate::Error::InvalidState("commissioner is not started"))?;
+            let commissioner =
+                self.commissioner
+                    .as_mut()
+                    .ok_or(ot_commissioner_rs::Error::InvalidState(
+                        "commissioner is not started",
+                    ))?;
             if commissioner.state() != CommissionerState::Active {
-                return Err(crate::Error::InvalidState(
+                return Err(ot_commissioner_rs::Error::InvalidState(
                     "commissioner session is not active",
                 ));
             }
@@ -112,7 +114,7 @@ impl Interpreter {
                     Ok(Some(event)) => event,
                     Ok(None) => {
                         commissioner.disconnect();
-                        return Err(crate::Error::InvalidState(
+                        return Err(ot_commissioner_rs::Error::InvalidState(
                             "keep-alive response event was not queued",
                         ));
                     }
@@ -138,7 +140,7 @@ impl Interpreter {
             if let Some(commissioner) = self.commissioner.as_mut() {
                 commissioner.disconnect();
             }
-            return Err(crate::Error::InvalidState(
+            return Err(ot_commissioner_rs::Error::InvalidState(
                 "keep-alive result and callback did not match",
             ));
         }
@@ -151,7 +153,7 @@ impl Interpreter {
                 if let Some(commissioner) = self.commissioner.as_mut() {
                     commissioner.disconnect();
                 }
-                Err(crate::Error::InvalidState(
+                Err(ot_commissioner_rs::Error::InvalidState(
                     "scheduled keep-alive response is pending",
                 ))
             }
@@ -159,7 +161,7 @@ impl Interpreter {
                 if let Some(commissioner) = self.commissioner.as_mut() {
                     commissioner.disconnect();
                 }
-                Err(crate::Error::InvalidState(
+                Err(ot_commissioner_rs::Error::InvalidState(
                     "scheduled keep-alive was rejected",
                 ))
             }
@@ -176,7 +178,10 @@ impl Interpreter {
             });
     }
 
-    async fn refresh_keepalive_before_command(&mut self, tokens: &Tokens) -> crate::Result<()> {
+    async fn refresh_keepalive_before_command(
+        &mut self,
+        tokens: &Tokens,
+    ) -> ot_commissioner_rs::Result<()> {
         if !command_may_wait_for_commissioner(tokens) {
             return Ok(());
         }
@@ -404,7 +409,9 @@ impl Interpreter {
                     .get_commissioner_dataset(CommissionerDatasetFlags::BORDER_AGENT_LOCATOR)
                     .await
                 {
-                    Ok(dataset) => match dataset.raw(crate::meshcop::TLV_BORDER_AGENT_LOCATOR) {
+                    Ok(dataset) => match dataset
+                        .raw(ot_commissioner_rs::meshcop::TLV_BORDER_AGENT_LOCATOR)
+                    {
                         Some([hi, lo]) => {
                             CommandValue::ok(format!("0x{:04x}", u16::from_be_bytes([*hi, *lo])))
                         }
@@ -485,10 +492,14 @@ impl Interpreter {
                 .get_commissioner_dataset(CommissionerDatasetFlags::JOINER_UDP_PORT)
                 .await
             {
-                Ok(dataset) => match dataset.raw(crate::meshcop::TLV_JOINER_UDP_PORT) {
-                    Some([hi, lo]) => CommandValue::ok(u16::from_be_bytes([*hi, *lo]).to_string()),
-                    _ => CommandValue::failed("joiner UDP port not present"),
-                },
+                Ok(dataset) => {
+                    match dataset.raw(ot_commissioner_rs::meshcop::TLV_JOINER_UDP_PORT) {
+                        Some([hi, lo]) => {
+                            CommandValue::ok(u16::from_be_bytes([*hi, *lo]).to_string())
+                        }
+                        _ => CommandValue::failed("joiner UDP port not present"),
+                    }
+                }
                 Err(err) => CommandValue::failed(err.to_string()),
             },
             "setport" => {
@@ -500,7 +511,7 @@ impl Interpreter {
                 };
                 let mut dataset = Dataset::default();
                 dataset.set_raw(
-                    crate::meshcop::TLV_JOINER_UDP_PORT,
+                    ot_commissioner_rs::meshcop::TLV_JOINER_UDP_PORT,
                     port.to_be_bytes().to_vec(),
                 );
                 commissioner.set_commissioner_dataset(&dataset).await.into()
@@ -660,7 +671,7 @@ impl Interpreter {
             Ok(dataset) => dataset,
             Err(err) => return CommandValue::failed(err.to_string()),
         };
-        let result = (|| -> crate::Result<Option<String>> {
+        let result = (|| -> ot_commissioner_rs::Result<Option<String>> {
             Ok(match field {
                 "activetimestamp" => dataset
                     .active_timestamp()?
@@ -710,8 +721,8 @@ impl Interpreter {
                     let number = parse_u64(tokens.get(4).map(String::as_str).unwrap_or(""))
                         .ok_or("invalid channel")?;
                     dataset.set_raw(
-                        crate::dataset::TLV_CHANNEL,
-                        crate::dataset::Channel {
+                        ot_commissioner_rs::dataset::TLV_CHANNEL,
+                        ot_commissioner_rs::dataset::Channel {
                             page: page as u8,
                             channel: number as u16,
                         }
@@ -720,17 +731,17 @@ impl Interpreter {
                     );
                 }
                 "xpanid" => dataset.set_raw(
-                    crate::dataset::TLV_EXTENDED_PAN_ID,
+                    ot_commissioner_rs::dataset::TLV_EXTENDED_PAN_ID,
                     hex::decode(tokens.get(3).map(String::as_str).unwrap_or("").trim())
                         .map_err(|e| e.to_string())?,
                 ),
                 "networkmasterkey" => dataset.set_raw(
-                    crate::dataset::TLV_NETWORK_KEY,
+                    ot_commissioner_rs::dataset::TLV_NETWORK_KEY,
                     hex::decode(tokens.get(3).map(String::as_str).unwrap_or("").trim())
                         .map_err(|e| e.to_string())?,
                 ),
                 "networkname" => dataset.set_raw(
-                    crate::dataset::TLV_NETWORK_NAME,
+                    ot_commissioner_rs::dataset::TLV_NETWORK_NAME,
                     tokens
                         .get(3)
                         .map(String::as_str)
@@ -741,15 +752,18 @@ impl Interpreter {
                 "panid" => {
                     let panid = json::parse_panid(tokens.get(3).map(String::as_str).unwrap_or(""))
                         .map_err(|e| e.to_string())?;
-                    dataset.set_raw(crate::dataset::TLV_PAN_ID, panid.to_be_bytes().to_vec());
+                    dataset.set_raw(
+                        ot_commissioner_rs::dataset::TLV_PAN_ID,
+                        panid.to_be_bytes().to_vec(),
+                    );
                 }
                 "pskc" => dataset.set_raw(
-                    crate::dataset::TLV_PSKC,
+                    ot_commissioner_rs::dataset::TLV_PSKC,
                     hex::decode(tokens.get(3).map(String::as_str).unwrap_or("").trim())
                         .map_err(|e| e.to_string())?,
                 ),
                 "meshlocalprefix" => dataset.set_raw(
-                    crate::dataset::TLV_MESH_LOCAL_PREFIX,
+                    ot_commissioner_rs::dataset::TLV_MESH_LOCAL_PREFIX,
                     json::parse_mesh_local_prefix(tokens.get(3).map(String::as_str).unwrap_or(""))
                         .map_err(|e| e.to_string())?
                         .to_vec(),
@@ -768,10 +782,13 @@ impl Interpreter {
                         [] => return Err("flags must not be empty".to_string()),
                     };
                     dataset.set_raw(
-                        crate::dataset::TLV_SECURITY_POLICY,
-                        crate::dataset::SecurityPolicy {
+                        ot_commissioner_rs::dataset::TLV_SECURITY_POLICY,
+                        ot_commissioner_rs::dataset::SecurityPolicy {
                             rotation_time: rotation,
-                            flags: crate::dataset::SecurityPolicyFlags::from_bits_retain(flags),
+                            flags:
+                                ot_commissioner_rs::dataset::SecurityPolicyFlags::from_bits_retain(
+                                    flags,
+                                ),
                         }
                         .to_value()
                         .to_vec(),
@@ -799,8 +816,8 @@ impl Interpreter {
                     Err(err) => return CommandValue::failed(err.to_string()),
                 };
                 dataset.set_raw(
-                    crate::dataset::TLV_ACTIVE_TIMESTAMP,
-                    crate::dataset::Timestamp::from_components(seconds, 0, false)
+                    ot_commissioner_rs::dataset::TLV_ACTIVE_TIMESTAMP,
+                    ot_commissioner_rs::dataset::Timestamp::from_components(seconds, 0, false)
                         .to_value()
                         .to_vec(),
                 );
@@ -1326,11 +1343,11 @@ const COMMANDS: &[(&str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commissioner::harness::{
+    use ot_commissioner_rs::commissioner::harness::{
         ScriptedExchange, ScriptedMeshcopTransport, ScriptedResponse,
     };
-    use crate::commissioner::{CommissionerConfig, JoinerHandler};
-    use crate::meshcop::CommissionerOperation;
+    use ot_commissioner_rs::commissioner::{CommissionerConfig, JoinerHandler};
+    use ot_commissioner_rs::meshcop::CommissionerOperation;
 
     /// Dispatches one offline command line (no border-agent session) and
     /// returns the rendered `[done]`/`[failed]` output.
@@ -1428,28 +1445,34 @@ mod tests {
     fn full_dataset_bytes() -> Vec<u8> {
         let mut dataset = Dataset::default();
         dataset.set_raw(
-            crate::dataset::TLV_ACTIVE_TIMESTAMP,
+            ot_commissioner_rs::dataset::TLV_ACTIVE_TIMESTAMP,
             (1u64 << 16).to_be_bytes().to_vec(),
         );
-        dataset.set_raw(crate::dataset::TLV_CHANNEL, vec![0, 0, 19]);
+        dataset.set_raw(ot_commissioner_rs::dataset::TLV_CHANNEL, vec![0, 0, 19]);
         dataset.set_raw(
-            crate::dataset::TLV_CHANNEL_MASK,
+            ot_commissioner_rs::dataset::TLV_CHANNEL_MASK,
             vec![0, 4, 0x00, 0x1f, 0xff, 0xc0],
         );
         dataset.set_raw(
-            crate::dataset::TLV_EXTENDED_PAN_ID,
+            ot_commissioner_rs::dataset::TLV_EXTENDED_PAN_ID,
             vec![0xa6, 0x39, 0x13, 0x57, 0xb4, 0x75, 0x1d, 0x8a],
         );
         dataset.set_raw(
-            crate::dataset::TLV_MESH_LOCAL_PREFIX,
+            ot_commissioner_rs::dataset::TLV_MESH_LOCAL_PREFIX,
             vec![0xfd, 0x00, 0x0d, 0xb8, 0, 0, 0, 0],
         );
-        dataset.set_raw(crate::dataset::TLV_NETWORK_KEY, vec![0x42; 16]);
-        dataset.set_raw(crate::dataset::TLV_NETWORK_NAME, b"cli-net".to_vec());
-        dataset.set_raw(crate::dataset::TLV_PAN_ID, 0xfaceu16.to_be_bytes().to_vec());
-        dataset.set_raw(crate::dataset::TLV_PSKC, vec![0x24; 16]);
+        dataset.set_raw(ot_commissioner_rs::dataset::TLV_NETWORK_KEY, vec![0x42; 16]);
         dataset.set_raw(
-            crate::dataset::TLV_SECURITY_POLICY,
+            ot_commissioner_rs::dataset::TLV_NETWORK_NAME,
+            b"cli-net".to_vec(),
+        );
+        dataset.set_raw(
+            ot_commissioner_rs::dataset::TLV_PAN_ID,
+            0xfaceu16.to_be_bytes().to_vec(),
+        );
+        dataset.set_raw(ot_commissioner_rs::dataset::TLV_PSKC, vec![0x24; 16]);
+        dataset.set_raw(
+            ot_commissioner_rs::dataset::TLV_SECURITY_POLICY,
             vec![0x02, 0xa0, 0xff, 0xf8],
         );
         dataset.to_bytes().unwrap()
@@ -1832,7 +1855,7 @@ mod tests {
                 .next_event()
                 .await
                 .unwrap_err(),
-            crate::Error::InvalidState("DTLS session is not established")
+            ot_commissioner_rs::Error::InvalidState("DTLS session is not established")
         ));
     }
 
@@ -2017,7 +2040,7 @@ mod tests {
 
         assert!(matches!(
             interpreter.handle_scheduled_keepalive().await.unwrap_err(),
-            crate::Error::InvalidState("scheduled keep-alive was rejected")
+            ot_commissioner_rs::Error::InvalidState("scheduled keep-alive was rejected")
         ));
         assert_eq!(interpreter.keepalive_deadline(), None);
         assert_eq!(
@@ -2041,7 +2064,7 @@ mod tests {
 
         assert!(matches!(
             interpreter.handle_scheduled_keepalive().await.unwrap_err(),
-            crate::Error::InvalidState("scheduled keep-alive response is pending")
+            ot_commissioner_rs::Error::InvalidState("scheduled keep-alive response is pending")
         ));
         assert_eq!(interpreter.keepalive_deadline(), None);
         assert_eq!(
@@ -2059,7 +2082,9 @@ mod tests {
 
         assert!(matches!(
             interpreter.handle_scheduled_keepalive().await.unwrap_err(),
-            crate::Error::InvalidState("scripted MeshCoP exchange did not produce a response")
+            ot_commissioner_rs::Error::InvalidState(
+                "scripted MeshCoP exchange did not produce a response"
+            )
         ));
         assert_eq!(interpreter.keepalive_deadline(), None);
         assert_eq!(
@@ -2075,7 +2100,7 @@ mod tests {
                 (
                     CommissionerOperation::GetCommissionerDataset,
                     vec![ScriptedResponse::content(vec![
-                        crate::meshcop::TLV_BORDER_AGENT_LOCATOR,
+                        ot_commissioner_rs::meshcop::TLV_BORDER_AGENT_LOCATOR,
                         2,
                         0x4c,
                         0x00,
@@ -2142,7 +2167,7 @@ mod tests {
                 (
                     CommissionerOperation::GetCommissionerDataset,
                     vec![ScriptedResponse::content(vec![
-                        crate::meshcop::TLV_JOINER_UDP_PORT,
+                        ot_commissioner_rs::meshcop::TLV_JOINER_UDP_PORT,
                         2,
                         0x03,
                         0xea,
@@ -2222,10 +2247,10 @@ mod tests {
     async fn commdataset_get_and_set_round_trip_json() {
         let mut comm_dataset = Dataset::default();
         comm_dataset.set_raw(
-            crate::meshcop::TLV_BORDER_AGENT_LOCATOR,
+            ot_commissioner_rs::meshcop::TLV_BORDER_AGENT_LOCATOR,
             0x1234u16.to_be_bytes().to_vec(),
         );
-        comm_dataset.set_raw(crate::meshcop::TLV_STEERING_DATA, vec![0xff]);
+        comm_dataset.set_raw(ot_commissioner_rs::meshcop::TLV_STEERING_DATA, vec![0xff]);
         let mut interpreter = active_interpreter(
             [
                 (
@@ -2288,18 +2313,24 @@ mod tests {
     async fn opdataset_get_projects_every_field_like_the_cpp_cli() {
         let full = full_dataset_bytes();
         let mut pending_dataset = Dataset::default();
-        pending_dataset.set_raw(crate::dataset::TLV_NETWORK_NAME, b"cli-net".to_vec());
         pending_dataset.set_raw(
-            crate::dataset::TLV_PENDING_TIMESTAMP,
+            ot_commissioner_rs::dataset::TLV_NETWORK_NAME,
+            b"cli-net".to_vec(),
+        );
+        pending_dataset.set_raw(
+            ot_commissioner_rs::dataset::TLV_PENDING_TIMESTAMP,
             (2u64 << 16).to_be_bytes().to_vec(),
         );
         pending_dataset.set_raw(
-            crate::dataset::TLV_DELAY_TIMER,
+            ot_commissioner_rs::dataset::TLV_DELAY_TIMER,
             60000u32.to_be_bytes().to_vec(),
         );
         let minimal = {
             let mut d = Dataset::default();
-            d.set_raw(crate::dataset::TLV_NETWORK_NAME, b"min".to_vec());
+            d.set_raw(
+                ot_commissioner_rs::dataset::TLV_NETWORK_NAME,
+                b"min".to_vec(),
+            );
             d.to_bytes().unwrap()
         };
 
@@ -2400,7 +2431,7 @@ mod tests {
         // bump it) and then issues the MGMT_ACTIVE_SET.
         let mut with_timestamp = Dataset::default();
         with_timestamp.set_raw(
-            crate::dataset::TLV_ACTIVE_TIMESTAMP,
+            ot_commissioner_rs::dataset::TLV_ACTIVE_TIMESTAMP,
             (7u64 << 16).to_be_bytes().to_vec(),
         );
         let timestamp_bytes = with_timestamp.to_bytes().unwrap();
@@ -2499,7 +2530,7 @@ mod tests {
                 (
                     CommissionerOperation::RegisterMulticastListener,
                     vec![ScriptedResponse::content(vec![
-                        crate::meshcop::THREAD_TLV_STATUS,
+                        ot_commissioner_rs::meshcop::THREAD_TLV_STATUS,
                         1,
                         0,
                     ])],
@@ -2693,7 +2724,7 @@ mod tests {
                 (
                     CommissionerOperation::GetActiveDataset,
                     vec![ScriptedResponse::Coded {
-                        code: crate::meshcop::CoapCode(0x84),
+                        code: ot_commissioner_rs::meshcop::CoapCode(0x84),
                         payload: Vec::new(),
                     }],
                 ),

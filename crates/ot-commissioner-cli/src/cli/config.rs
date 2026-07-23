@@ -6,7 +6,7 @@ use std::{path::Path, time::Duration};
 use serde::Deserialize;
 use zeroize::Zeroizing;
 
-use crate::{
+use ot_commissioner_rs::{
     commissioner::CommissionerConfig,
     error::{Error, Result},
 };
