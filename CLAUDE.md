@@ -35,7 +35,8 @@ mbedTLS at runtime.
 
 Three cargo-workspace members (root `Cargo.toml`), plus `fuzz/` and
 `demo/esp32h2-dtls/`, which are excluded workspaces with their own lockfiles.
-The demo is two-role ESP32-H2 firmware for DTLS over raw IEEE 802.15.4.
+The demo is two-role ESP32-H2 firmware for commissioner-style DTLS over a real
+two-node OpenThread IPv6 network.
 
 - `crates/thread-dtls` — the Thread MeshCoP DTLS 1.2 profile, standalone with
   `no_std` + `alloc` support and runtime-neutral apart from its optional Tokio

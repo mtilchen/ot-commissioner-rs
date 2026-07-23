@@ -6,6 +6,3 @@ runner = "espflash flash --monitor --chip esp32h2"
 # target rustflag in the current stable esp-generate template.
 rustflags = ["-C", "force-frame-pointers"]
 target = "riscv32imac-unknown-none-elf"
-
-[unstable]
-build-std = ["alloc", "core"]

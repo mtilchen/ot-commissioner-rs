@@ -12,12 +12,11 @@ resolver = "3"
 [features]
 default = []
 role-client = []
-role-server = []
+role-server = ["openthread/ftd"]
 
 [dependencies]
 embassy-executor = { version = "=0.10.0" }
 embassy-time = { version = "=0.5.1" }
-embedded-hal-async = { version = "=1.0.0" }
 embedded-io-async = { version = "=0.7.0" }
 embedded-nal-async = { version = "=0.9.0" }
 esp-alloc = { version = "=0.10.0", features = ["esp32h2"] }
@@ -26,10 +25,12 @@ esp-bootloader-esp-idf = { version = "=0.5.0", features = ["esp32h2"] }
 esp-hal = { version = "=1.1.1", features = ["esp32h2", "unstable"] }
 esp-println = { version = "=0.17.0", features = ["esp32h2"] }
 esp-radio = { version = "=0.18.0", default-features = false, features = ["esp32h2", "ieee802154", "unstable"] }
-esp-rtos = { version = "=0.3.0", features = ["embassy", "esp-alloc", "esp32h2"] }
-ieee802154 = { version = "=0.6.1" }
+esp-rtos = { version = "=0.3.0", features = ["embassy", "esp-alloc", "esp-radio", "esp32h2"] }
+openthread = { git = "https://github.com/esp-rs/openthread.git", rev = "e4d27b39f01563c98fd1e88ab2fa9799a1ae26fe", features = ["esp-radio", "isupper", "udp"] }
 rand_core = { version = "=0.6.4", default-features = false }
+static_cell = { version = "=2.1.1" }
 thread-dtls = { path = "../../crates/thread-dtls", default-features = false, features = ["embedded"] }
+tinyrlibc = { version = "=0.5.1", default-features = false, features = ["strtoul", "utoa"] }
 
 [profile.dev]
 opt-level = "s"

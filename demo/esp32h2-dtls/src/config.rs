@@ -1,33 +1,95 @@
-//! Fixed radio and application settings for the two-board desk demo.
+//! Canned Thread dataset and application addressing for the desk demo.
 
-use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-
-/// IEEE 802.15.4 channel used by both boards.
-pub(crate) const CHANNEL: u8 = 15;
-/// IEEE 802.15.4 PAN identifier used by both boards.
-pub(crate) const PAN_ID: u16 = 0x2ee7;
-/// Server board short address.
-pub(crate) const SERVER_SHORT_ADDRESS: u16 = 0x0001;
-/// Client board short address.
 #[cfg(feature = "role-client")]
-pub(crate) const CLIENT_SHORT_ADDRESS: u16 = 0x0002;
-/// Synthetic UDP port used by the raw-radio adapter.
-pub(crate) const DEMO_PORT: u16 = 0x2ee7;
+use core::net::{Ipv6Addr, SocketAddrV6};
 
-/// Demo-only shared PSKc. Replace this credential before any non-demo use.
-///
-/// This value, key material, and raw handshake payloads must never be logged.
-pub(crate) const DEMO_PSKC: [u8; 16] = [
-    0x9f, 0x62, 0x31, 0x84, 0xa7, 0x0d, 0x55, 0xc2, 0x16, 0xe9, 0x43, 0x78, 0x0b, 0xd4, 0x6a, 0xf1,
-];
+const TLV_PSKC: u8 = 0x04;
+#[cfg(feature = "role-client")]
+const TLV_MESH_LOCAL_PREFIX: u8 = 0x07;
 
-/// Maps a 16-bit radio short address into the demo's synthetic IPv4 space.
+/// UDP port used by the DTLS server and client.
+pub(crate) const DEMO_PORT: u16 = 49_191;
+
+/// Demo-only Active Operational Dataset, encoded as Thread TLVs.
 ///
-/// The two configured addresses fit in one octet. The upper octet is rejected
-/// at the adapter boundary rather than silently truncated.
-pub(crate) const fn socket_addr(short_address: u16) -> SocketAddr {
-    SocketAddr::V4(SocketAddrV4::new(
-        Ipv4Addr::new(10, 0, 0, short_address as u8),
-        DEMO_PORT,
-    ))
+/// Generated with:
+/// `cargo run -p ot-commissioner-rs --example generate_esp32h2_demo_dataset`
+///
+/// The dataset includes the network name `thread-dtls-demo`, channel 15,
+/// PAN ID `0xd71d`, an extended PAN ID, mesh-local prefix, Network Key, PSKc,
+/// Active Timestamp, and Security Policy. Its keys are public demo credentials.
+pub(crate) const ACTIVE_DATASET_TLV_HEX: &str = concat!(
+    "0e080000000000010001",
+    "000300000f",
+    "0102d71d",
+    "020802240723d715a10c",
+    "03107468726561642d64746c732d64656d6f",
+    "0410d31964aa08f25c71be439710e62d8b55",
+    "05105ac17e3942b86df01193ce2478a50bd6",
+    "0708fd240723d7150000",
+    "0c0402a0f7f8",
+);
+
+/// Returns the PSKc encoded in [`ACTIVE_DATASET_TLV_HEX`].
+pub(crate) const fn dataset_pskc() -> [u8; 16] {
+    dataset_tlv_value::<16>(TLV_PSKC)
+}
+
+/// Returns the deterministic Leader Anycast Locator and demo UDP port.
+#[cfg(feature = "role-client")]
+pub(crate) fn leader_aloc() -> SocketAddrV6 {
+    let prefix = dataset_tlv_value::<8>(TLV_MESH_LOCAL_PREFIX);
+    let mut octets = [0; 16];
+    let mut index = 0;
+    while index < prefix.len() {
+        octets[index] = prefix[index];
+        index += 1;
+    }
+    octets[8..].copy_from_slice(&[0x00, 0x00, 0x00, 0xff, 0xfe, 0x00, 0xfc, 0x00]);
+
+    SocketAddrV6::new(Ipv6Addr::from(octets), DEMO_PORT, 0, 0)
+}
+
+const fn dataset_tlv_value<const N: usize>(wanted_type: u8) -> [u8; N] {
+    let hex = ACTIVE_DATASET_TLV_HEX.as_bytes();
+    let mut cursor = 0;
+
+    while cursor + 4 <= hex.len() {
+        let tlv_type = hex_byte(hex, cursor);
+        let length = hex_byte(hex, cursor + 2) as usize;
+        let value_start = cursor + 4;
+
+        if tlv_type == wanted_type {
+            assert!(length == N, "unexpected demo dataset TLV length");
+            assert!(
+                value_start + (length * 2) <= hex.len(),
+                "truncated demo dataset TLV"
+            );
+
+            let mut value = [0; N];
+            let mut index = 0;
+            while index < N {
+                value[index] = hex_byte(hex, value_start + (index * 2));
+                index += 1;
+            }
+            return value;
+        }
+
+        cursor = value_start + (length * 2);
+    }
+
+    panic!("required demo dataset TLV is missing")
+}
+
+const fn hex_byte(hex: &[u8], offset: usize) -> u8 {
+    (hex_nibble(hex[offset]) << 4) | hex_nibble(hex[offset + 1])
+}
+
+const fn hex_nibble(value: u8) -> u8 {
+    match value {
+        b'0'..=b'9' => value - b'0',
+        b'a'..=b'f' => value - b'a' + 10,
+        b'A'..=b'F' => value - b'A' + 10,
+        _ => panic!("invalid hex in demo dataset"),
+    }
 }
