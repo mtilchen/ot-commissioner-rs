@@ -19,6 +19,10 @@ It implements the non-CCM feature set of the C++
 (full matrix in [docs/PARITY.md](docs/PARITY.md)), so it is a complete
 commissioner rather than a partial reimplementation.
 
+This is a cargo workspace of three crates: the `ot-commissioner-rs` library
+(this crate), its `thread-dtls` DTLS 1.2 profile, and the `ot-commissioner-cli`
+REPL binary.
+
 ## Why
 
 - **Pure Rust, zero `unsafe`, no C crypto.** Built on small RustCrypto crates
@@ -86,7 +90,7 @@ async fn main() -> ot_commissioner_rs::Result<()> {
 }
 ```
 
-The [`examples/`](examples) directory has runnable tools built on this API: a
+The [`examples/`](crates/ot-commissioner-rs/examples) directory has runnable tools built on this API: a
 network-diagnostic topology mapper (`netdiag`), read-only live probes, and a
 small `commissionerctl`. Examples redact dataset secrets by default and resign
 read-only sessions before exiting; mutating operations are gated behind
@@ -146,9 +150,9 @@ process.
 Reproduce the core gate locally:
 
 ```sh
-cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-features
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
 ```
 
 ## CI Quality Reports
@@ -156,8 +160,8 @@ cargo test --all-features
 GitHub Actions drives the full quality process from
 [quality.yml](.github/workflows/quality.yml):
 
-- `verify` runs `cargo fmt --check`, clippy with `-D warnings`, and
-  `cargo test --all-features`.
+- `verify` runs `cargo fmt --all --check`, clippy with `-D warnings` across the
+  workspace, and `cargo test --workspace --all-features`.
 - `coverage` runs [tools/ci/coverage.sh](tools/ci/coverage.sh), enforces the
   current coverage thresholds, writes a GitHub job summary, and uploads
   `coverage-summary.json`, `lcov.info`, and the HTML report as artifacts.

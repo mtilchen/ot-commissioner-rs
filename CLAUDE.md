@@ -25,49 +25,71 @@ mbedTLS at runtime.
 - Thread 1.4.0 specification — the wire formats, MeshCoP CoAP resources, dataset
   TLVs, and security policy bits implemented here.
 - RFC 8236 (J-PAKE) and RFC 8235 (Schnorr NIZK) — the EC J-PAKE handshake in
-  `src/crypto/ecjpake/` follows the EC form of both.
+  `crates/thread-dtls/src/ecjpake/` follows the EC form of both.
 - OpenThread `ot-commissioner` (github.com/openthread/ot-commissioner) — the C++
   reference implementation, used for parity and as a source of test vectors. The
   `tools/mbedtls_*.c` harnesses and the mbedTLS reference vector in the
-  `crypto/ecjpake` tests come from this lineage.
+  `ecjpake` tests come from this lineage.
 
-## Module map (`src/`)
+## Workspace map (`crates/`)
 
-- `tlv.rs` — Thread TLV codec. Preserves wire order, duplicates, unknown types,
-  and supports the extended (0xff) length form. Foundation for everything else.
-- `dataset.rs` — Operational dataset (`Dataset` = active/pending alias) built on
-  `TlvSet`, with typed accessors (channel, PAN ID, security policy, timestamps,
-  channel mask, …) that validate lengths.
-- `crypto/`
+Three cargo-workspace members (root `Cargo.toml`), plus `fuzz/` which stays at
+the repo root, excluded from the workspace (nightly-only, its own lockfile).
+
+- `crates/thread-dtls` — the Thread MeshCoP DTLS 1.2 profile, standalone and
+  runtime-neutral apart from its Tokio session driver.
   - `ecjpake/` — EC J-PAKE party + Schnorr NIZK over P-256, split into the
     protocol state machine and shared P-256 helpers (`mod.rs`), the Schnorr
     proof gen/verify (`schnorr.rs`), and the TLS `ECJPAKEKeyKPPairList` /
     key-exchange codecs (`codec.rs`).
-  - `pskc.rs` — PSKc via PBKDF2-AES-CMAC-PRF-128, joiner ID, steering-data
-    Bloom filter.
-  - `record.rs` — AES-CCM-8 record protection key + nonce helpers.
-- `dtls/` — DTLS 1.2 profile. `thread_handshake.rs` is the runtime-neutral
-  client handshake state machine and `thread_server_handshake.rs` its server
-  counterpart (used for joiner sessions; includes HelloVerifyRequest cookies
-  and Joiner Router KEK export); `session.rs` is the Tokio driver
-  (`DtlsSession::connect`). Record framing, the TLS 1.2 PRF key schedule, and
-  AES-128-CCM-8 record protection live in sibling files.
-- `meshcop/` — CoAP codec (`coap.rs`), MeshCoP request builders (`builders.rs`,
-  incl. UDP_TX/RLY_TX encapsulation), response/notification parsers
-  (`parsers.rs`, incl. UDP_RX decapsulation), URI + TLV constants, and the
-  dataset-flag → TLV-type mapping (`flags.rs`). The network-diagnostic data
-  model lives in `diag/` (`model.rs` types, `decode.rs` wire decoders,
-  `diag_flags.rs` request flags, `NetDiagData`).
-- `commissioner/` — Async public API. `client/` holds `Commissioner`, split by
-  concern: `mod.rs` (struct, connect, lifecycle, shared helpers), `datasets.rs`
-  (operational/commissioner/BBR dataset get/set), `commands.rs` (announce/scan/
-  PAN-ID and managed-device commands), `diagnostics.rs` (network-diagnostic
-  queries), `relay.rs` (joiner relay handling), and `transport.rs` (DTLS session,
-  request/response routing, mesh-local-prefix/ALOC routing, UDP-proxy
-  encapsulation). `joiner.rs` holds the joiner session state machine plus
-  `JoinerHandler` / `StaticJoinerHandler`. `harness.rs` is a test-only scripted
-  MeshCoP transport that exercises the production incoming-message loop.
-- `error.rs` — Crate-wide `thiserror` `Error`/`Result`.
+  - `ccm.rs` — AES-CCM-8 record protection: `RecordProtectionKey` and
+    `AesCcm8`.
+  - `thread_handshake.rs` is the runtime-neutral client handshake state
+    machine and `thread_server_handshake.rs` its server counterpart (used for
+    joiner sessions; includes HelloVerifyRequest cookies and Joiner Router KEK
+    export); `session.rs` is the Tokio driver (`DtlsSession::connect`). Record
+    framing (`record.rs`), the TLS 1.2 PRF key schedule (`key_schedule.rs`),
+    and AES-128-CCM-8 record protection (`record_protection.rs`) live in
+    sibling files.
+  - `error.rs` — this crate's own `thiserror` `Error`/`Result`.
+  - `test_support.rs` — in-process loopback DTLS server for deterministic
+    handshake tests, gated behind the `test-support` feature. Unit tests live
+    in `tests/`.
+- `crates/ot-commissioner-rs` — the library.
+  - `tlv.rs` — Thread TLV codec. Preserves wire order, duplicates, unknown
+    types, and supports the extended (0xff) length form. Foundation for
+    everything else.
+  - `dataset.rs` — Operational dataset (`Dataset` = active/pending alias)
+    built on `TlvSet`, with typed accessors (channel, PAN ID, security policy,
+    timestamps, channel mask, …) that validate lengths.
+  - `crypto/` — now just `pskc.rs` (PSKc via PBKDF2-AES-CMAC-PRF-128, joiner
+    ID, steering-data Bloom filter) plus a re-export of
+    `thread_dtls::RecordProtectionKey` so callers keep a single key type.
+  - `meshcop/` — CoAP codec (`coap.rs`), MeshCoP request builders
+    (`builders.rs`, incl. UDP_TX/RLY_TX encapsulation), response/notification
+    parsers (`parsers.rs`, incl. UDP_RX decapsulation), URI + TLV constants,
+    and the dataset-flag → TLV-type mapping (`flags.rs`). The
+    network-diagnostic data model lives in `diag/` (`model.rs` types,
+    `decode.rs` wire decoders, `diag_flags.rs` request flags, `NetDiagData`).
+  - `commissioner/` — Async public API. `client/` holds `Commissioner`, split
+    by concern: `mod.rs` (struct, connect, lifecycle, shared helpers),
+    `datasets.rs` (operational/commissioner/BBR dataset get/set),
+    `commands.rs` (announce/scan/PAN-ID and managed-device commands),
+    `diagnostics.rs` (network-diagnostic queries), `relay.rs` (joiner relay
+    handling), and `transport.rs` (DTLS session, request/response routing,
+    mesh-local-prefix/ALOC routing, UDP-proxy encapsulation). `joiner.rs`
+    holds the joiner session state machine plus `JoinerHandler` /
+    `StaticJoinerHandler`. `harness.rs` is a test-only scripted MeshCoP
+    transport that exercises the production incoming-message loop, `pub`
+    behind the `test-support` feature.
+  - `error.rs` — Crate-wide `thiserror` `Error`/`Result`, including a
+    transparent `Dtls` variant wrapping `thread_dtls::Error`.
+  - `tests/` (`interop_openthread.rs`, `live_border_router.rs`) and
+    `examples/` live here too.
+- `crates/ot-commissioner-cli` — the REPL binary (still named
+  `ot-commissioner-rs`), formerly the library's `cli` feature. Run it with
+  `cargo run -p ot-commissioner-cli`. Its scripted tests use the library's
+  `test-support` feature.
 
 ## Conventions and gotchas worth knowing
 
@@ -90,9 +112,9 @@ mbedTLS at runtime.
 ## Verify (must pass before work is "done", per AGENTS.md)
 
 ```sh
-cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-features
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
 ```
 
 `tools/ci/coverage.sh` (cargo-llvm-cov) and `tools/ci/mutants.sh`

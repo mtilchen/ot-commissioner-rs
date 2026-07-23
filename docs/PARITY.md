@@ -89,7 +89,7 @@ failed or non-accepting response; the `netdiag` collector sends proactively
 before a diagnostic wait could cross the same deadline. Examples and live tests
 resign before exiting, per the working agreement.
 
-## App-layer features (`src/app`, CLI) — out of library scope
+## App-layer features (`crates/ot-commissioner-cli`) — out of library scope
 
 The C++ repository also ships an interactive CLI, JSON config/persistence,
 security-materials storage, multi-network management, and mDNS border-agent
