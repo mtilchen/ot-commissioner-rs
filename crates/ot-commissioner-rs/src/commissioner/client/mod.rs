@@ -23,7 +23,7 @@ use crate::{
 };
 use thread_dtls::DtlsSession;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use super::harness::ScriptedMeshcopTransport;
 use super::{
     config::CommissionerConfig,
@@ -58,7 +58,7 @@ pub struct Commissioner {
     state: CommissionerState,
     session_id: Option<u16>,
     dtls_session: Option<DtlsSession>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     scripted_transport: Option<ScriptedMeshcopTransport>,
     next_message_id: u16,
     events: VecDeque<CommissionerEvent>,
@@ -88,7 +88,7 @@ impl Commissioner {
             state: CommissionerState::Connected,
             session_id: None,
             dtls_session: None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             scripted_transport: None,
             next_message_id: 0,
             events: VecDeque::new(),
@@ -296,9 +296,13 @@ impl Commissioner {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl Commissioner {
-    pub(crate) async fn connect_scripted(
+    /// Test support: connects a [`Commissioner`] to the deterministic
+    /// scripted MeshCoP transport instead of a real DTLS session, so tests
+    /// can drive the public API without a network. Unstable test scaffolding
+    /// for this workspace's suites; not a supported public API.
+    pub async fn connect_scripted(
         config: CommissionerConfig,
         border_agent: SocketAddr,
         scripted_transport: ScriptedMeshcopTransport,
@@ -325,15 +329,26 @@ impl Commissioner {
         })
     }
 
-    pub(crate) fn scripted_transport(&self) -> Option<&ScriptedMeshcopTransport> {
+    /// Test support: returns the scripted MeshCoP transport when this
+    /// `Commissioner` was created with [`Commissioner::connect_scripted`], for
+    /// inspecting observed requests and sent messages. Unstable test
+    /// scaffolding for this workspace's suites; not a supported public API.
+    pub fn scripted_transport(&self) -> Option<&ScriptedMeshcopTransport> {
         self.scripted_transport.as_ref()
     }
 
-    pub(crate) fn set_cached_mesh_local_prefix(&mut self, prefix: Option<[u8; 8]>) {
+    /// Test support: overrides the cached mesh-local prefix used for
+    /// ALOC/RLOC routing, bypassing the dataset fetch that would otherwise
+    /// populate it. Unstable test scaffolding for this workspace's suites;
+    /// not a supported public API.
+    pub fn set_cached_mesh_local_prefix(&mut self, prefix: Option<[u8; 8]>) {
         self.mesh_local_prefix = prefix;
     }
 
-    pub(crate) fn cached_mesh_local_prefix(&self) -> Option<[u8; 8]> {
+    /// Test support: returns the currently cached mesh-local prefix. Unstable
+    /// test scaffolding for this workspace's suites; not a supported public
+    /// API.
+    pub fn cached_mesh_local_prefix(&self) -> Option<[u8; 8]> {
         self.mesh_local_prefix
     }
 }

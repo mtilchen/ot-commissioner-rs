@@ -12,6 +12,11 @@ default = []
 # `ot-commissioner` CLI. Off by default so the library's dependency surface stays
 # minimal; build/run with `--features cli`.
 cli = ["dep:serde", "dep:serde_json"]
+# Deterministic scripted MeshCoP transport (`commissioner::harness`) and the
+# scripted-connect hooks on `Commissioner`, for driving the public API in
+# tests. Unstable test scaffolding for this workspace's suites; not a
+# supported public API.
+test-support = []
 
 [dependencies]
 thread-dtls.workspace = true

@@ -6,8 +6,8 @@
 
 mod client;
 mod config;
-#[cfg(test)]
-pub(crate) mod harness;
+#[cfg(any(test, feature = "test-support"))]
+pub mod harness;
 mod joiner;
 mod types;
 

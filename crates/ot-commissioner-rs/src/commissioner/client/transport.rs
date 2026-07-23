@@ -155,7 +155,7 @@ impl Commissioner {
             hex::encode(&request.token)
         ));
 
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(scripted) = self.scripted_transport.as_mut() {
             let mut incoming = scripted.exchange(operation, wire_message)?;
             if !wait_for_response {
@@ -296,7 +296,7 @@ impl Commissioner {
 
     /// Sends an encoded CoAP message over the active transport.
     pub(super) async fn send_wire(&mut self, message: &meshcop::CoapMessage) -> Result<()> {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(scripted) = &mut self.scripted_transport {
             scripted.record_sent(message.clone());
             return Ok(());
