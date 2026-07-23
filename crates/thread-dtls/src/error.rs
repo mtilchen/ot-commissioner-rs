@@ -1,5 +1,7 @@
 //! Error and result types for the Thread DTLS profile.
 
+use alloc::string::String;
+
 /// Crate-wide result alias.
 pub type Result<T> = core::result::Result<T, Error>;
 
@@ -19,6 +21,7 @@ pub enum Error {
     #[error("timeout: {0}")]
     Timeout(&'static str),
     /// An I/O operation failed.
+    #[cfg(feature = "std")]
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 }

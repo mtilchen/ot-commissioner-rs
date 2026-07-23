@@ -1,5 +1,7 @@
 //! Shared DTLS utility helpers.
 
+use alloc::string::ToString;
+
 use crate::{Result, error::Error};
 
 pub(crate) const MAX_U24: u32 = 0x00ff_ffff;
@@ -18,14 +20,26 @@ pub(crate) fn write_u24(value: u32, out: &mut [u8]) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "std")]
 pub(crate) fn dtls_trace(args: core::fmt::Arguments<'_>) {
     if std::env::var_os("OT_COMMISSIONER_TRACE").is_some() {
         eprintln!("[dtls] {args}");
     }
 }
 
+#[cfg(not(feature = "std"))]
+#[inline]
+pub(crate) fn dtls_trace(_args: core::fmt::Arguments<'_>) {}
+
+#[cfg(feature = "std")]
 pub(crate) fn dtls_trace_secret(label: &str, bytes: &[u8]) {
     if std::env::var_os("OT_COMMISSIONER_TRACE_SECRETS").is_some() {
         eprintln!("[dtls-secret] {label}={}", hex::encode(bytes));
     }
+}
+
+#[cfg(not(feature = "std"))]
+#[inline]
+pub(crate) fn dtls_trace_secret(label: &str, _bytes: &[u8]) {
+    dtls_trace(format_args!("{label}"));
 }

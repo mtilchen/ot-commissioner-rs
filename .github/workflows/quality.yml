@@ -60,6 +60,33 @@ jobs:
       - name: cargo test
         run: cargo test --workspace --all-features
 
+  no-std:
+    name: thread-dtls no_std
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add riscv32imac-unknown-none-elf
+
+      - name: Cache Cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: cargo build
+        run: cargo build -p thread-dtls --no-default-features --target riscv32imac-unknown-none-elf
+
   supply-chain:
     name: Supply Chain (audit, deny)
     runs-on: ubuntu-latest

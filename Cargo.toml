@@ -24,19 +24,19 @@ ot-commissioner-rs = { path = "crates/ot-commissioner-rs", version = "0.1.0" }
 # (0.5.0) that this workspace also depends on. Moving them requires p256 0.14
 # (currently only release candidates). Bump these together with p256 once its
 # new generation ships stable.
-aes = "0.8.4"
-ccm = { version = "0.5.0", features = ["alloc"] }
+aes = { version = "0.8.4", default-features = false }
+ccm = { version = "0.5.0", default-features = false, features = ["alloc"] }
 cmac = "0.7.2"
-hmac = "0.12"
+hmac = { version = "0.12", default-features = false }
 p256 = { version = "0.13.2", default-features = false, features = ["arithmetic"] }
-rand_core = { version = "0.6", features = ["getrandom"] }
-sha2 = "0.10"
+rand_core = { version = "0.6", default-features = false }
+sha2 = { version = "0.10", default-features = false }
 # Latest-stable, no generation coupling.
 argh = "0.1.19"
 hex = "0.4.3"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-subtle = "2.6.1"
-thiserror = "2.0.18"
+subtle = { version = "2.6.1", default-features = false }
+thiserror = { version = "2.0.18", default-features = false }
 tokio = { version = "1.52.3", features = ["net", "time", "macros", "rt-multi-thread"] }
-zeroize = { version = "1.9.0", features = ["derive"] }
+zeroize = { version = "1.9.0", default-features = false, features = ["alloc", "derive"] }

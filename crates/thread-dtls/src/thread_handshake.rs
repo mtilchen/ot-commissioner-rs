@@ -1,5 +1,7 @@
 //! Runtime-neutral Thread DTLS handshake state.
 
+use alloc::string::ToString;
+
 use rand_core::{CryptoRng, RngCore};
 use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
@@ -34,9 +36,14 @@ pub struct ThreadDtlsHandshake {
 impl ThreadDtlsHandshake {
     /// Creates a client-side Thread DTLS handshake state.
     pub fn new(pskc: &[u8], rng: &mut (impl RngCore + CryptoRng)) -> Self {
+        Self::new_with_rng(rng, pskc)
+    }
+
+    /// Creates a client-side handshake with randomness supplied by the caller.
+    pub fn new_with_rng(rng: &mut (impl RngCore + CryptoRng), pskc: &[u8]) -> Self {
         let mut client_random = [0u8; 32];
         rng.fill_bytes(&mut client_random);
-        let ecjpake = EcJpakeParty::new_thread(EcJpakeRole::Client, pskc, rng);
+        let ecjpake = EcJpakeParty::new_thread_with_rng(rng, EcJpakeRole::Client, pskc);
         let client_round_one = ecjpake.round_one(rng);
         Self {
             ecjpake,

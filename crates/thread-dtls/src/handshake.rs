@@ -1,5 +1,7 @@
 //! DTLS handshake message framing and transcript helpers.
 
+use alloc::{format, string::ToString, vec, vec::Vec};
+
 use sha2::Digest;
 
 use crate::{Result, error::Error};

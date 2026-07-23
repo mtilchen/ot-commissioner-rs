@@ -1,5 +1,7 @@
 //! TLS 1.2 key schedule helpers for the Thread DTLS profile.
 
+use alloc::{string::ToString, vec::Vec};
+
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use zeroize::{Zeroize, Zeroizing};

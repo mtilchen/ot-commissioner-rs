@@ -36,8 +36,9 @@ mbedTLS at runtime.
 Three cargo-workspace members (root `Cargo.toml`), plus `fuzz/` which stays at
 the repo root, excluded from the workspace (nightly-only, its own lockfile).
 
-- `crates/thread-dtls` — the Thread MeshCoP DTLS 1.2 profile, standalone and
-  runtime-neutral apart from its Tokio session driver.
+- `crates/thread-dtls` — the Thread MeshCoP DTLS 1.2 profile, standalone with
+  `no_std` + `alloc` support and runtime-neutral apart from its optional Tokio
+  session driver.
   - `ecjpake/` — EC J-PAKE party + Schnorr NIZK over P-256, split into the
     protocol state machine and shared P-256 helpers (`mod.rs`), the Schnorr
     proof gen/verify (`schnorr.rs`), and the TLS `ECJPAKEKeyKPPairList` /

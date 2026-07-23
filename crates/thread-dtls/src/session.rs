@@ -1,5 +1,7 @@
 //! Tokio-backed DTLS session driver.
 
+use alloc::{format, string::ToString, vec, vec::Vec};
+
 use crate::{Result, ccm::RecordProtectionKey, error::Error};
 
 use super::{
@@ -46,7 +48,17 @@ impl DtlsSession {
         timeout: core::time::Duration,
     ) -> Result<Self> {
         let mut rng = rand_core::OsRng;
-        let mut handshake = ThreadDtlsHandshake::new(pskc, &mut rng);
+        Self::connect_with_rng(&mut rng, socket, pskc, timeout).await
+    }
+
+    /// Runs the handshake using cryptographic randomness supplied by the caller.
+    pub async fn connect_with_rng(
+        rng: &mut (impl rand_core::RngCore + rand_core::CryptoRng),
+        socket: &tokio::net::UdpSocket,
+        pskc: &[u8],
+        timeout: core::time::Duration,
+    ) -> Result<Self> {
+        let mut handshake = ThreadDtlsHandshake::new_with_rng(rng, pskc);
         let mut hello_state = handshake.client_hello_state()?;
 
         let first_client_hello = hello_state.next_client_hello_record()?;
@@ -71,7 +83,7 @@ impl DtlsSession {
 
         let client_key_exchange_seq = hello_state.next_message_sequence();
         let client_key_exchange =
-            handshake.build_client_key_exchange(client_key_exchange_seq, &mut rng)?;
+            handshake.build_client_key_exchange(client_key_exchange_seq, rng)?;
         let key_material = handshake.derive_key_material()?;
         let client_finished =
             handshake.build_client_finished(client_key_exchange_seq.wrapping_add(1))?;

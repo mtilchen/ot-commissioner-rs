@@ -1,5 +1,7 @@
 //! Schnorr NIZK proof generation and verification (RFC 8235).
 
+use alloc::string::ToString;
+
 use p256::{
     ProjectivePoint, Scalar, U256,
     elliptic_curve::{group::Group, ops::Reduce},

@@ -1,5 +1,7 @@
 //! TLS AES-128-CCM-8 record protection for DTLS records.
 
+use alloc::{string::ToString, vec::Vec};
+
 use crate::{
     Result,
     ccm::{

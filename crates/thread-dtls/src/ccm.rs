@@ -1,5 +1,7 @@
 //! AES-CCM-8 record protection helpers.
 
+use alloc::{string::ToString, vec::Vec};
+
 use aes::Aes128;
 use ccm::{
     Ccm, Nonce,

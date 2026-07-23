@@ -5,6 +5,8 @@
 //! under `cfg(test)`). It is unstable test scaffolding for this workspace's
 //! suites, not a supported public API, and carries no stability guarantees.
 
+use alloc::{format, string::ToString, vec, vec::Vec};
+
 use tokio::net::UdpSocket;
 
 use crate::{Error, Result, ccm::RecordProtectionKey};
@@ -34,8 +36,18 @@ pub async fn loopback_dtls_server(
     end: LoopbackEnd,
 ) -> Result<Option<ThreadDtlsKeyMaterial>> {
     let mut rng = rand_core::OsRng;
-    let mut server = ThreadDtlsServerHandshake::new(psk, &mut rng);
-    let cookies = DtlsCookieGenerator::new(&mut rng);
+    loopback_dtls_server_with_rng(&mut rng, socket, psk, end).await
+}
+
+/// Serves one commissioner handshake using caller-supplied randomness.
+pub async fn loopback_dtls_server_with_rng(
+    rng: &mut (impl rand_core::RngCore + rand_core::CryptoRng),
+    socket: &UdpSocket,
+    psk: &[u8],
+    end: LoopbackEnd,
+) -> Result<Option<ThreadDtlsKeyMaterial>> {
+    let mut server = ThreadDtlsServerHandshake::new_with_rng(rng, psk);
+    let cookies = DtlsCookieGenerator::new_with_rng(rng);
     let mut buf = [0u8; 4096];
     let mut epoch0_seq = 0u64;
     let mut saw_change_cipher_spec = false;
@@ -76,7 +88,7 @@ pub async fn loopback_dtls_server(
                                 let mut datagram = Vec::new();
                                 for built in [
                                     server.build_server_hello(1)?,
-                                    server.build_server_key_exchange(2, &mut rng)?,
+                                    server.build_server_key_exchange(2, rng)?,
                                     server.build_server_hello_done(3)?,
                                 ] {
                                     let record = DtlsRecord::new(

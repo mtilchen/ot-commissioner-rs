@@ -1,5 +1,7 @@
 //! DTLS record framing.
 
+use alloc::{string::ToString, vec::Vec};
+
 use crate::{Result, error::Error};
 
 use super::constants::DTLS_1_2_VERSION;

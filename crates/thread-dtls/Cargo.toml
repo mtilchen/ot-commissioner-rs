@@ -7,20 +7,22 @@ rust-version.workspace = true
 license.workspace = true
 
 [features]
-default = []
+default = ["tokio"]
+std = ["dep:hex", "rand_core/getrandom"]
+tokio = ["std", "dep:tokio"]
 # In-process loopback DTLS server for deterministic handshake tests. Unstable
 # test scaffolding for this workspace's suites; not a supported public API.
-test-support = []
+test-support = ["tokio"]
 
 [dependencies]
 aes.workspace = true
 ccm.workspace = true
-hex.workspace = true
+hex = { workspace = true, optional = true }
 hmac.workspace = true
 p256.workspace = true
 rand_core.workspace = true
 sha2.workspace = true
 subtle.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, optional = true }
 zeroize.workspace = true

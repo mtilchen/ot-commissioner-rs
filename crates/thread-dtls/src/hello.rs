@@ -1,5 +1,7 @@
 //! DTLS hello-message codecs and cookie-retry state.
 
+use alloc::{format, string::ToString, vec, vec::Vec};
+
 use crate::{Result, error::Error};
 
 use super::{

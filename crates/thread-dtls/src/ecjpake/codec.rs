@@ -2,6 +2,8 @@
 //! `ECJPAKEKeyKPPairList` (round one), and the key-exchange parameters
 //! (round two), with a small cursor that length-checks every field.
 
+use alloc::{format, string::ToString, vec::Vec};
+
 use p256::ProjectivePoint;
 
 use crate::{Result, error::Error};

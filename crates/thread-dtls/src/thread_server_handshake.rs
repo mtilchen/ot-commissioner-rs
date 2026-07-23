@@ -6,6 +6,8 @@
 //! role: callers feed complete handshake messages in and send the built
 //! messages out, while record framing and protection stay at the driver layer.
 
+use alloc::{string::ToString, vec, vec::Vec};
+
 use hmac::{Hmac, Mac};
 use rand_core::{CryptoRng, RngCore};
 use sha2::Sha256;
@@ -48,6 +50,11 @@ pub const DTLS_COOKIE_LEN: usize = 16;
 impl DtlsCookieGenerator {
     /// Creates a generator with a random HMAC key.
     pub fn new(rng: &mut (impl RngCore + CryptoRng)) -> Self {
+        Self::new_with_rng(rng)
+    }
+
+    /// Creates a generator with an HMAC key from caller-supplied randomness.
+    pub fn new_with_rng(rng: &mut (impl RngCore + CryptoRng)) -> Self {
         let mut key = [0u8; 32];
         rng.fill_bytes(&mut key);
         Self { key }
@@ -93,9 +100,14 @@ impl ThreadDtlsServerHandshake {
     /// For joiner sessions the shared secret is the joiner PSKd bytes; for
     /// commissioner sessions it would be the PSKc.
     pub fn new(shared_secret: &[u8], rng: &mut (impl RngCore + CryptoRng)) -> Self {
+        Self::new_with_rng(rng, shared_secret)
+    }
+
+    /// Creates a server-side handshake with randomness supplied by the caller.
+    pub fn new_with_rng(rng: &mut (impl RngCore + CryptoRng), shared_secret: &[u8]) -> Self {
         let mut server_random = [0u8; 32];
         rng.fill_bytes(&mut server_random);
-        let ecjpake = EcJpakeParty::new_thread(EcJpakeRole::Server, shared_secret, rng);
+        let ecjpake = EcJpakeParty::new_thread_with_rng(rng, EcJpakeRole::Server, shared_secret);
         let server_round_one = ecjpake.round_one(rng);
         Self {
             ecjpake,

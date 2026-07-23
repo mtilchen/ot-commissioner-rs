@@ -10,6 +10,8 @@
 //! the private `schnorr` module, and the TLS `ECJPAKEKeyKPPairList` /
 //! key-exchange codecs are in the private `codec` module.
 
+use alloc::{string::ToString, vec::Vec};
+
 use p256::{
     AffinePoint, EncodedPoint, ProjectivePoint, Scalar, U256,
     elliptic_curve::{
@@ -117,7 +119,16 @@ impl EcJpakeParty {
         shared_secret: &[u8],
         rng: &mut (impl RngCore + CryptoRng),
     ) -> Self {
-        Self::new(role, role.thread_participant_id(), shared_secret, rng)
+        Self::new_thread_with_rng(rng, role, shared_secret)
+    }
+
+    /// Creates a Thread-profile party with randomness supplied by the caller.
+    pub fn new_thread_with_rng(
+        rng: &mut (impl RngCore + CryptoRng),
+        role: EcJpakeRole,
+        shared_secret: &[u8],
+    ) -> Self {
+        Self::new_with_rng(rng, role, role.thread_participant_id(), shared_secret)
     }
 
     /// Creates a party with random ephemeral scalars.
@@ -126,6 +137,16 @@ impl EcJpakeParty {
         participant_id: impl Into<Vec<u8>>,
         shared_secret: &[u8],
         rng: &mut (impl RngCore + CryptoRng),
+    ) -> Self {
+        Self::new_with_rng(rng, role, participant_id, shared_secret)
+    }
+
+    /// Creates a party with caller-supplied randomness for its ephemeral scalars.
+    pub fn new_with_rng(
+        rng: &mut (impl RngCore + CryptoRng),
+        role: EcJpakeRole,
+        participant_id: impl Into<Vec<u8>>,
+        shared_secret: &[u8],
     ) -> Self {
         Self {
             role,

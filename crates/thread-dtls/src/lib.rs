@@ -12,10 +12,25 @@
 //! [`ecjpake`] module. The `test-support` feature exposes an in-process
 //! loopback DTLS server used by this workspace's deterministic handshake
 //! tests; it is unstable scaffolding, not a supported public API.
+//!
+//! # Feature flags
+//!
+//! - `default` enables the Tokio session driver.
+//! - `tokio` enables the Tokio session driver and implies `std`.
+//! - `std` enables standard-library errors, tracing, and OS-backed randomness.
+//! - `test-support` enables the Tokio-based loopback test server.
+//!
+//! With default features disabled, the runtime-neutral protocol and
+//! cryptographic APIs support `no_std` environments with an allocator. The
+//! crate's test suite expects default features because its loopback tests use
+//! Tokio.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 #![warn(clippy::unwrap_used, clippy::expect_used)]
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
 
 mod ccm;
 mod constants;
@@ -26,6 +41,7 @@ mod hello;
 mod key_schedule;
 mod record;
 mod record_protection;
+#[cfg(feature = "tokio")]
 mod session;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
@@ -51,6 +67,7 @@ pub use key_schedule::{
 };
 pub use record::{ContentType, DtlsRecord, RecordHeader};
 pub use record_protection::{open_aes_128_ccm_8_record, protect_aes_128_ccm_8_record};
+#[cfg(feature = "tokio")]
 pub use session::DtlsSession;
 pub use thread_handshake::ThreadDtlsHandshake;
 pub use thread_server_handshake::{
