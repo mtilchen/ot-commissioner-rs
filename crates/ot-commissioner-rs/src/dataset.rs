@@ -295,39 +295,35 @@ impl SecurityPolicy {
     }
 }
 
-/// Bit flags in the Thread security policy TLV.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SecurityPolicyFlags(u16);
+impl_bitflag_newtype! {
+    /// Bit flags in the Thread security policy TLV.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct SecurityPolicyFlags(u16);
+    constants {
+        /// Out-of-band commissioning is disallowed.
+        pub const OUT_OF_BAND_COMMISSIONING_DISALLOWED: u16 = 0x0001;
+        /// Native commissioning is disallowed.
+        pub const NATIVE_COMMISSIONING_DISALLOWED: u16 = 0x0002;
+        /// Legacy routers are enabled.
+        pub const LEGACY_ROUTERS_ENABLED: u16 = 0x0004;
+        /// External commissioner authentication is required.
+        pub const EXTERNAL_COMMISSIONER_AUTH_REQUIRED: u16 = 0x0008;
+        /// Commercial commissioning mode is enabled.
+        pub const COMMERCIAL_COMMISSIONING_MODE: u16 = 0x0010;
+
+        const VERSION_THRESHOLD_MASK: u16 = 0xe000;
+    }
+    methods {
+        /// Creates flags from raw bits, preserving unknown bits.
+        from_bits_retain;
+        /// Returns raw bits.
+        bits;
+        /// Returns whether all bits in `mask` are set.
+        contains(mask: u16);
+    }
+}
 
 impl SecurityPolicyFlags {
-    /// Out-of-band commissioning is disallowed.
-    pub const OUT_OF_BAND_COMMISSIONING_DISALLOWED: u16 = 0x0001;
-    /// Native commissioning is disallowed.
-    pub const NATIVE_COMMISSIONING_DISALLOWED: u16 = 0x0002;
-    /// Legacy routers are enabled.
-    pub const LEGACY_ROUTERS_ENABLED: u16 = 0x0004;
-    /// External commissioner authentication is required.
-    pub const EXTERNAL_COMMISSIONER_AUTH_REQUIRED: u16 = 0x0008;
-    /// Commercial commissioning mode is enabled.
-    pub const COMMERCIAL_COMMISSIONING_MODE: u16 = 0x0010;
-
-    const VERSION_THRESHOLD_MASK: u16 = 0xe000;
-
-    /// Creates flags from raw bits, preserving unknown bits.
-    pub const fn from_bits_retain(bits: u16) -> Self {
-        Self(bits)
-    }
-
-    /// Returns raw bits.
-    pub const fn bits(self) -> u16 {
-        self.0
-    }
-
-    /// Returns whether all bits in `mask` are set.
-    pub const fn contains(self, mask: u16) -> bool {
-        (self.0 & mask) == mask
-    }
-
     /// Returns the Thread protocol version threshold stored in bits 13-15.
     pub fn version_threshold_for_routing(self) -> ThreadProtocolVersion {
         if self.contains(Self::LEGACY_ROUTERS_ENABLED) {

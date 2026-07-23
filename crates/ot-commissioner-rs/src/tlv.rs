@@ -166,26 +166,15 @@ pub fn encode_header(ty: u8, length: usize, out: &mut Vec<u8>) -> Result<(), Tlv
 }
 
 pub(crate) fn read_u16(value: &[u8]) -> Result<u16, TlvError> {
-    if value.len() != 2 {
-        return Err(TlvError::InvalidLength);
-    }
-    Ok(u16::from_be_bytes([value[0], value[1]]))
+    crate::wire::read_u16(value).ok_or(TlvError::InvalidLength)
 }
 
 pub(crate) fn read_u32(value: &[u8]) -> Result<u32, TlvError> {
-    if value.len() != 4 {
-        return Err(TlvError::InvalidLength);
-    }
-    Ok(u32::from_be_bytes([value[0], value[1], value[2], value[3]]))
+    crate::wire::read_u32(value).ok_or(TlvError::InvalidLength)
 }
 
 pub(crate) fn read_u64(value: &[u8]) -> Result<u64, TlvError> {
-    if value.len() != 8 {
-        return Err(TlvError::InvalidLength);
-    }
-    Ok(u64::from_be_bytes([
-        value[0], value[1], value[2], value[3], value[4], value[5], value[6], value[7],
-    ]))
+    crate::wire::read_u64(value).ok_or(TlvError::InvalidLength)
 }
 
 #[cfg(test)]

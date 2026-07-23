@@ -26,6 +26,7 @@ use crate::{
     meshcop::{
         self, CoapCode, CoapMessage, CoapType, CommissionerOperation, MeshcopState,
         TLV_COMMISSIONER_SESSION_ID, TLV_STATE,
+        util::{append_tlv_u8_length as append_tlv, append_u16_u8_length as append_u16},
     },
 };
 
@@ -394,14 +395,4 @@ fn state_payload(state: MeshcopState) -> Vec<u8> {
     let mut payload = Vec::new();
     append_tlv(&mut payload, TLV_STATE, &[state.to_wire()]);
     payload
-}
-
-fn append_u16(out: &mut Vec<u8>, ty: u8, value: u16) {
-    append_tlv(out, ty, &value.to_be_bytes());
-}
-
-fn append_tlv(out: &mut Vec<u8>, ty: u8, value: &[u8]) {
-    out.push(ty);
-    out.push(value.len() as u8);
-    out.extend_from_slice(value);
 }

@@ -113,8 +113,11 @@ two-node OpenThread IPv6 network.
 - Mutating CLI/example operations are gated behind `OT_COMMISSIONER_MUTATE_OK=1`.
 - CCM (token/certificate) flows are intentionally deferred and return
   `Error::Unsupported`.
-- `OT_COMMISSIONER_TRACE` / `dtls_trace*` print non-secret protocol traces to
-  stderr.
+- `OT_COMMISSIONER_TRACE` prints non-secret MeshCoP and DTLS protocol traces to
+  stderr as `[meshcop] message` and `[dtls] message`.
+- `OT_COMMISSIONER_TRACE_SECRETS` additionally prints sensitive DTLS key
+  material and plaintext to stderr as `[dtls-secret] message`. Use it only in
+  controlled debugging environments.
 
 ## Verify (must pass before work is "done", per AGENTS.md)
 
@@ -122,6 +125,14 @@ two-node OpenThread IPv6 network.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
+```
+
+When touching `crates/thread-dtls`, also build the no_std profile the CI
+`no-std` job enforces — host gates always have `std` on and cannot catch
+`std`/`eprintln!` leaking into un-gated code:
+
+```sh
+cargo build -p thread-dtls --no-default-features --target riscv32imac-unknown-none-elf
 ```
 
 `tools/ci/coverage.sh` (cargo-llvm-cov) and `tools/ci/mutants.sh`

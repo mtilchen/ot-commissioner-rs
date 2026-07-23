@@ -393,7 +393,9 @@ fn check_state_response(response: &meshcop::CoapMessage, state_mandatory: bool) 
 
 /// Prints a non-secret protocol trace line when `OT_COMMISSIONER_TRACE` is set.
 fn commissioner_trace(args: core::fmt::Arguments<'_>) {
-    if std::env::var_os("OT_COMMISSIONER_TRACE").is_some() {
+    const TRACE_ENV: &str = "OT_COMMISSIONER_TRACE";
+
+    if std::env::var_os(TRACE_ENV).is_some() {
         eprintln!("[meshcop] {args}");
     }
 }

@@ -35,12 +35,16 @@
 //! reimplements the C++ `ot-commissioner` CLI on top of this library lives in
 //! the separate `ot-commissioner-cli` crate.
 
+#[macro_use]
+mod flags;
+
 pub mod commissioner;
 pub mod crypto;
 pub mod dataset;
 pub mod error;
 pub mod meshcop;
 pub mod tlv;
+mod wire;
 
 pub use error::{Error, Result};
 

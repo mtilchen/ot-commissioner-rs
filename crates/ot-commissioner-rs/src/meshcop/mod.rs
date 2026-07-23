@@ -16,7 +16,7 @@ pub mod diag;
 mod flags;
 mod parsers;
 mod types;
-mod util;
+pub(crate) mod util;
 
 pub use builders::{
     EnergyScanRequest, announce_begin_request, dataset_get_request, dataset_set_request,

@@ -92,121 +92,84 @@ pub struct PetitionResponse {
     pub existing_commissioner_id: Option<String>,
 }
 
-/// Active and pending operational dataset TLV flags used by MeshCoP get requests.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct DatasetFlags(u64);
-
-impl DatasetFlags {
-    /// Empty flag set.
-    pub const EMPTY: Self = Self(0);
-    /// All known flags set.
-    pub const ALL: Self = Self(u64::MAX);
-    /// Active dataset: Active Timestamp.
-    pub const ACTIVE_TIMESTAMP: Self = Self(1 << 15);
-    /// Active dataset: Channel.
-    pub const CHANNEL: Self = Self(1 << 14);
-    /// Active dataset: Channel Mask.
-    pub const CHANNEL_MASK: Self = Self(1 << 13);
-    /// Active dataset: Extended PAN ID.
-    pub const EXTENDED_PAN_ID: Self = Self(1 << 12);
-    /// Active dataset: Mesh-Local Prefix.
-    pub const MESH_LOCAL_PREFIX: Self = Self(1 << 11);
-    /// Active dataset: Network Key.
-    pub const NETWORK_KEY: Self = Self(1 << 10);
-    /// Active dataset: Network Name.
-    pub const NETWORK_NAME: Self = Self(1 << 9);
-    /// Active dataset: PAN ID.
-    pub const PAN_ID: Self = Self(1 << 8);
-    /// Active dataset: PSKc.
-    pub const PSKC: Self = Self(1 << 7);
-    /// Active dataset: Security Policy.
-    pub const SECURITY_POLICY: Self = Self(1 << 6);
-    /// Pending dataset: Delay Timer.
-    pub const DELAY_TIMER: Self = Self(1 << 5);
-    /// Pending dataset: Pending Timestamp.
-    pub const PENDING_TIMESTAMP: Self = Self(1 << 4);
-    /// Creates flags from raw bits.
-    pub const fn from_bits(bits: u64) -> Self {
-        Self(bits)
+impl_bitflag_newtype! {
+    /// Active and pending operational dataset TLV flags used by MeshCoP get requests.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    pub struct DatasetFlags(u64);
+    constants {
+        /// Empty flag set.
+        pub const EMPTY: Self = Self(0);
+        /// All known flags set.
+        pub const ALL: Self = Self(u64::MAX);
+        /// Active dataset: Active Timestamp.
+        pub const ACTIVE_TIMESTAMP: Self = Self(1 << 15);
+        /// Active dataset: Channel.
+        pub const CHANNEL: Self = Self(1 << 14);
+        /// Active dataset: Channel Mask.
+        pub const CHANNEL_MASK: Self = Self(1 << 13);
+        /// Active dataset: Extended PAN ID.
+        pub const EXTENDED_PAN_ID: Self = Self(1 << 12);
+        /// Active dataset: Mesh-Local Prefix.
+        pub const MESH_LOCAL_PREFIX: Self = Self(1 << 11);
+        /// Active dataset: Network Key.
+        pub const NETWORK_KEY: Self = Self(1 << 10);
+        /// Active dataset: Network Name.
+        pub const NETWORK_NAME: Self = Self(1 << 9);
+        /// Active dataset: PAN ID.
+        pub const PAN_ID: Self = Self(1 << 8);
+        /// Active dataset: PSKc.
+        pub const PSKC: Self = Self(1 << 7);
+        /// Active dataset: Security Policy.
+        pub const SECURITY_POLICY: Self = Self(1 << 6);
+        /// Pending dataset: Delay Timer.
+        pub const DELAY_TIMER: Self = Self(1 << 5);
+        /// Pending dataset: Pending Timestamp.
+        pub const PENDING_TIMESTAMP: Self = Self(1 << 4);
     }
-
-    /// Returns raw bits.
-    pub const fn bits(self) -> u64 {
-        self.0
+    methods {
+        /// Creates flags from raw bits.
+        from_bits;
+        /// Returns raw bits.
+        bits;
+        /// Returns whether every bit in `other` is set.
+        contains(other: Self);
     }
-
-    /// Returns whether every bit in `other` is set.
-    pub const fn contains(self, other: Self) -> bool {
-        (self.0 & other.0) == other.0
-    }
+    bit_ops;
 }
 
-impl core::ops::BitOr for DatasetFlags {
-    type Output = Self;
-
-    fn bitor(self, rhs: Self) -> Self::Output {
-        Self(self.0 | rhs.0)
+impl_bitflag_newtype! {
+    /// Commissioner dataset TLV flags used by MeshCoP commissioner and BBR get requests.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    pub struct CommissionerDatasetFlags(u64);
+    constants {
+        /// Empty flag set.
+        pub const EMPTY: Self = Self(0);
+        /// All known flags set.
+        pub const ALL: Self = Self(u64::MAX);
+        /// Border Agent Locator.
+        pub const BORDER_AGENT_LOCATOR: Self = Self(1 << 15);
+        /// Commissioner Session ID.
+        pub const COMMISSIONER_SESSION_ID: Self = Self(1 << 14);
+        /// Steering Data.
+        pub const STEERING_DATA: Self = Self(1 << 13);
+        /// AE Steering Data.
+        pub const AE_STEERING_DATA: Self = Self(1 << 12);
+        /// NMKP Steering Data.
+        pub const NMKP_STEERING_DATA: Self = Self(1 << 11);
+        /// Joiner UDP Port.
+        pub const JOINER_UDP_PORT: Self = Self(1 << 10);
+        /// AE UDP Port.
+        pub const AE_UDP_PORT: Self = Self(1 << 9);
+        /// NMKP UDP Port.
+        pub const NMKP_UDP_PORT: Self = Self(1 << 8);
     }
-}
-
-impl core::ops::BitOrAssign for DatasetFlags {
-    fn bitor_assign(&mut self, rhs: Self) {
-        self.0 |= rhs.0;
+    methods {
+        /// Creates flags from raw bits.
+        from_bits;
+        /// Returns raw bits.
+        bits;
+        /// Returns whether every bit in `other` is set.
+        contains(other: Self);
     }
-}
-
-/// Commissioner dataset TLV flags used by MeshCoP commissioner and BBR get requests.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct CommissionerDatasetFlags(u64);
-
-impl CommissionerDatasetFlags {
-    /// Empty flag set.
-    pub const EMPTY: Self = Self(0);
-    /// All known flags set.
-    pub const ALL: Self = Self(u64::MAX);
-    /// Border Agent Locator.
-    pub const BORDER_AGENT_LOCATOR: Self = Self(1 << 15);
-    /// Commissioner Session ID.
-    pub const COMMISSIONER_SESSION_ID: Self = Self(1 << 14);
-    /// Steering Data.
-    pub const STEERING_DATA: Self = Self(1 << 13);
-    /// AE Steering Data.
-    pub const AE_STEERING_DATA: Self = Self(1 << 12);
-    /// NMKP Steering Data.
-    pub const NMKP_STEERING_DATA: Self = Self(1 << 11);
-    /// Joiner UDP Port.
-    pub const JOINER_UDP_PORT: Self = Self(1 << 10);
-    /// AE UDP Port.
-    pub const AE_UDP_PORT: Self = Self(1 << 9);
-    /// NMKP UDP Port.
-    pub const NMKP_UDP_PORT: Self = Self(1 << 8);
-
-    /// Creates flags from raw bits.
-    pub const fn from_bits(bits: u64) -> Self {
-        Self(bits)
-    }
-
-    /// Returns raw bits.
-    pub const fn bits(self) -> u64 {
-        self.0
-    }
-
-    /// Returns whether every bit in `other` is set.
-    pub const fn contains(self, other: Self) -> bool {
-        (self.0 & other.0) == other.0
-    }
-}
-
-impl core::ops::BitOr for CommissionerDatasetFlags {
-    type Output = Self;
-
-    fn bitor(self, rhs: Self) -> Self::Output {
-        Self(self.0 | rhs.0)
-    }
-}
-
-impl core::ops::BitOrAssign for CommissionerDatasetFlags {
-    fn bitor_assign(&mut self, rhs: Self) {
-        self.0 |= rhs.0;
-    }
+    bit_ops;
 }

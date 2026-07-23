@@ -453,15 +453,11 @@ fn read_u8(value: &[u8], name: &str) -> Result<u8> {
 }
 
 fn read_u16(value: &[u8], name: &str) -> Result<u16> {
-    let bytes: [u8; 2] = value
-        .try_into()
-        .map_err(|_| Error::Dataset(format!("{name} must be 2 bytes, got {}", value.len())))?;
-    Ok(u16::from_be_bytes(bytes))
+    crate::wire::read_u16(value)
+        .ok_or_else(|| Error::Dataset(format!("{name} must be 2 bytes, got {}", value.len())))
 }
 
 fn read_u32(value: &[u8], name: &str) -> Result<u32> {
-    let bytes: [u8; 4] = value
-        .try_into()
-        .map_err(|_| Error::Dataset(format!("{name} must be 4 bytes, got {}", value.len())))?;
-    Ok(u32::from_be_bytes(bytes))
+    crate::wire::read_u32(value)
+        .ok_or_else(|| Error::Dataset(format!("{name} must be 4 bytes, got {}", value.len())))
 }

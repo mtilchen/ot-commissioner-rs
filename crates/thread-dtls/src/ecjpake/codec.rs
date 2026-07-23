@@ -198,7 +198,7 @@ impl<'a> TlsEcJpakeCursor<'a> {
 
     fn read_u16(&mut self) -> Result<u16> {
         let bytes = self.read_exact(2)?;
-        Ok(u16::from_be_bytes([bytes[0], bytes[1]]))
+        Ok(crate::util::read_u16(bytes))
     }
 
     fn read_exact(&mut self, len: usize) -> Result<&'a [u8]> {

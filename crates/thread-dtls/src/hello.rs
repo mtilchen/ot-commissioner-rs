@@ -449,7 +449,7 @@ impl<'a> Cursor<'a> {
 
     fn read_u16(&mut self) -> Result<u16> {
         let bytes = self.read_exact(2)?;
-        Ok(u16::from_be_bytes([bytes[0], bytes[1]]))
+        Ok(crate::util::read_u16(bytes))
     }
 
     fn read_array_32(&mut self) -> Result<[u8; 32]> {
