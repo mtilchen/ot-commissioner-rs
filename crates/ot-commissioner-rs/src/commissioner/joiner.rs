@@ -21,15 +21,14 @@ use zeroize::Zeroizing;
 use crate::{
     Result,
     crypto::RecordProtectionKey,
-    dtls::{
-        ContentType, DtlsCookieGenerator, DtlsRecord, HandshakeMessage, HandshakeType,
-        HelloVerifyRequest, ThreadDtlsKeyMaterial, ThreadDtlsServerHandshake,
-        open_aes_128_ccm_8_record, parse_unfragmented_handshake_messages,
-        protect_aes_128_ccm_8_record,
-    },
     error::Error,
     meshcop::{self, CoapCode, CoapMessage, CoapType},
     tlv::TlvSet,
+};
+use thread_dtls::{
+    ContentType, DtlsCookieGenerator, DtlsRecord, HandshakeMessage, HandshakeType,
+    HelloVerifyRequest, ThreadDtlsKeyMaterial, ThreadDtlsServerHandshake,
+    open_aes_128_ccm_8_record, parse_unfragmented_handshake_messages, protect_aes_128_ccm_8_record,
 };
 
 /// The IID of a joiner is its randomized link-local interface identifier; the
@@ -311,13 +310,13 @@ impl JoinerSession {
     ) -> Result<()> {
         match (message.message_type, self.phase) {
             (HandshakeType::ClientHello, JoinerSessionPhase::AwaitingClientHello) => {
-                let hello = crate::dtls::ClientHello::decode(&message.payload)?;
+                let hello = thread_dtls::ClientHello::decode(&message.payload)?;
                 if !self.cookie.verify(&hello.random, &hello.cookie) {
                     let verify = HandshakeMessage {
                         message_type: HandshakeType::HelloVerifyRequest,
                         message_seq: message.message_seq,
                         payload: HelloVerifyRequest {
-                            server_version: crate::dtls::DTLS_1_2_VERSION,
+                            server_version: thread_dtls::DTLS_1_2_VERSION,
                             cookie: self.cookie.cookie(&hello.random)?.to_vec(),
                         }
                         .encode()?,
@@ -480,7 +479,9 @@ impl JoinerSession {
     /// Derives the Joiner Router KEK once the handshake has key material.
     pub(crate) fn joiner_router_kek(&self) -> Result<[u8; 16]> {
         let key_material = self.key_material_required()?;
-        self.handshake.derive_joiner_router_kek(key_material)
+        self.handshake
+            .derive_joiner_router_kek(key_material)
+            .map_err(Error::from)
     }
 
     fn key_material_required(&self) -> Result<&ThreadDtlsKeyMaterial> {
@@ -496,12 +497,13 @@ impl JoinerSession {
             RecordProtectionKey::new(key_material.key_block.client_write_key),
             &key_material.key_block.client_write_iv,
         )
+        .map_err(Error::from)
     }
 
     fn plaintext_record(&mut self, payload: Vec<u8>) -> Result<Vec<u8>> {
         let record = DtlsRecord::new(ContentType::Handshake, 0, self.epoch0_sequence, payload)?;
         self.epoch0_sequence = self.epoch0_sequence.wrapping_add(1);
-        record.encode()
+        record.encode().map_err(Error::from)
     }
 
     fn plaintext_change_cipher_spec(&mut self) -> Result<Vec<u8>> {
@@ -512,7 +514,7 @@ impl JoinerSession {
             vec![1],
         )?;
         self.epoch0_sequence = self.epoch0_sequence.wrapping_add(1);
-        record.encode()
+        record.encode().map_err(Error::from)
     }
 }
 

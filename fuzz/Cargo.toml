@@ -24,6 +24,9 @@ libfuzzer-sys = "0.4"
 [dependencies.ot-commissioner-rs]
 path = "../crates/ot-commissioner-rs"
 
+[dependencies.thread-dtls]
+path = "../crates/thread-dtls"
+
 # Keep this crate out of the parent package's build graph.
 [workspace]
 members = ["."]

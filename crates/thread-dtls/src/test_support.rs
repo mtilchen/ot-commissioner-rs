@@ -1,8 +1,13 @@
-//! In-process DTLS loopback server shared by dtls and commissioner tests.
+//! In-process DTLS loopback server shared by this crate's and the
+//! commissioner's tests.
+//!
+//! This module is gated behind the `test-support` feature (and always built
+//! under `cfg(test)`). It is unstable test scaffolding for this workspace's
+//! suites, not a supported public API, and carries no stability guarantees.
 
 use tokio::net::UdpSocket;
 
-use crate::{Error, Result, crypto::RecordProtectionKey};
+use crate::{Error, Result, ccm::RecordProtectionKey};
 
 use super::{
     ContentType, DTLS_1_2_VERSION, DtlsCookieGenerator, DtlsRecord, HandshakeMessage,
@@ -13,7 +18,7 @@ use super::{
 
 /// How the loopback server finishes the handshake.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LoopbackEnd {
+pub enum LoopbackEnd {
     /// Complete the handshake and return the session keys.
     Complete,
     /// Send a fatal alert instead of the ChangeCipherSpec + Finished flight.
@@ -23,7 +28,7 @@ pub(crate) enum LoopbackEnd {
 /// Serves one commissioner DTLS handshake over a connected UDP socket.
 ///
 /// Returns the negotiated key material when the handshake completes.
-pub(crate) async fn loopback_dtls_server(
+pub async fn loopback_dtls_server(
     socket: &UdpSocket,
     psk: &[u8],
     end: LoopbackEnd,

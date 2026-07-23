@@ -14,15 +14,12 @@ default = []
 cli = ["dep:serde", "dep:serde_json"]
 
 [dependencies]
+thread-dtls.workspace = true
 aes.workspace = true
-ccm.workspace = true
 cmac.workspace = true
 hex.workspace = true
-hmac.workspace = true
-p256.workspace = true
 rand_core.workspace = true
 sha2.workspace = true
-subtle.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 zeroize.workspace = true
@@ -31,6 +28,7 @@ serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
+thread-dtls = { workspace = true, features = ["test-support"] }
 argh.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -18,10 +18,10 @@ use tokio::net::UdpSocket;
 
 use crate::{
     Result,
-    dtls::DtlsSession,
     error::Error,
     meshcop::{self, CommissionerOperation, MeshcopState},
 };
+use thread_dtls::DtlsSession;
 
 #[cfg(test)]
 use super::harness::ScriptedMeshcopTransport;

@@ -167,7 +167,7 @@ async fn dataset_set_operations_validate_mandatory_tlvs() {
 
 #[tokio::test]
 async fn commissioner_runs_petition_over_a_real_dtls_session() {
-    use crate::dtls::{ContentType, DtlsRecord, test_support};
+    use thread_dtls::{ContentType, DtlsRecord, test_support};
 
     let pskc = [0x42u8; 16];
     let border = UdpSocket::bind("127.0.0.1:0").await.unwrap();
@@ -199,7 +199,7 @@ async fn commissioner_runs_petition_over_a_real_dtls_session() {
                 {
                     continue;
                 }
-                let plaintext = crate::dtls::open_aes_128_ccm_8_record(
+                let plaintext = thread_dtls::open_aes_128_ccm_8_record(
                     &record,
                     crate::crypto::RecordProtectionKey::new(keys.key_block.client_write_key),
                     &keys.key_block.client_write_iv,
@@ -216,7 +216,7 @@ async fn commissioner_runs_petition_over_a_real_dtls_session() {
                     options: Vec::new(),
                     payload,
                 };
-                let protected = crate::dtls::protect_aes_128_ccm_8_record(
+                let protected = thread_dtls::protect_aes_128_ccm_8_record(
                     ContentType::ApplicationData,
                     1,
                     1,
@@ -272,7 +272,7 @@ async fn multicast_commands_skip_the_response_wait() {
 #[tokio::test]
 async fn clear_joiner_handler_drops_sessions_and_restores_raw_events() {
     let mut rng = rand_core::OsRng;
-    let joiner = crate::dtls::ThreadDtlsHandshake::new(b"J01NME", &mut rng);
+    let joiner = thread_dtls::ThreadDtlsHandshake::new(b"J01NME", &mut rng);
     let client_hello = joiner
         .client_hello_state()
         .unwrap()

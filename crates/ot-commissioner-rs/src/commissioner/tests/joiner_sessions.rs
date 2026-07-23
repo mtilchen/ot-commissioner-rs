@@ -8,16 +8,16 @@ use super::super::joiner::{
 use super::*;
 use crate::{
     crypto::RecordProtectionKey,
-    dtls::{
-        ContentType, DtlsRecord, HandshakeType, ServerHello, ThreadDtlsHandshake,
-        ThreadDtlsKeyMaterial, derive_joiner_router_kek, open_aes_128_ccm_8_record,
-        parse_unfragmented_handshake_messages, parse_unfragmented_handshake_record,
-        protect_aes_128_ccm_8_record,
-    },
     meshcop::{
         TLV_PROVISIONING_URL, TLV_VENDOR_MODEL, TLV_VENDOR_NAME, TLV_VENDOR_STACK_VERSION,
         TLV_VENDOR_SW_VERSION,
     },
+};
+use thread_dtls::{
+    ContentType, DtlsRecord, HandshakeType, ServerHello, ThreadDtlsHandshake,
+    ThreadDtlsKeyMaterial, derive_joiner_router_kek, open_aes_128_ccm_8_record,
+    parse_unfragmented_handshake_messages, parse_unfragmented_handshake_record,
+    protect_aes_128_ccm_8_record,
 };
 
 const JOINER_IID: [u8; 8] = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];

@@ -1,7 +1,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use ot_commissioner_rs::dtls::HelloVerifyRequest;
+use thread_dtls::HelloVerifyRequest;
 
 // HelloVerifyRequest decoding: a decoded message must round-trip.
 fuzz_target!(|data: &[u8]| {

@@ -220,7 +220,7 @@ fn thread_dtls_handshake_derives_key_material_from_ecjpake_messages() {
     let client_key_exchange = client.build_client_key_exchange(4, &mut rng).unwrap();
     let client_two = RoundTwo::decode_tls_key_exchange(
         &client_key_exchange.payload,
-        crate::crypto::THREAD_CLIENT_ID,
+        crate::ecjpake::THREAD_CLIENT_ID,
         false,
     )
     .unwrap();

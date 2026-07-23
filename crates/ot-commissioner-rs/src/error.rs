@@ -24,6 +24,10 @@ pub enum Error {
     #[error("crypto error: {0}")]
     Crypto(String),
 
+    /// An error surfaced by the DTLS layer.
+    #[error(transparent)]
+    Dtls(#[from] thread_dtls::Error),
+
     /// Hex decoding failed.
     #[error("invalid hex: {0}")]
     Hex(#[from] hex::FromHexError),

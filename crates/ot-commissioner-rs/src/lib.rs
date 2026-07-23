@@ -26,18 +26,18 @@
 //! network-diagnostic data model in [`meshcop::diag`] (surfaced through
 //! commissioner events).
 //!
-//! The remaining modules — [`crypto`], [`dtls`], [`tlv`], and the CoAP/MeshCoP
-//! codecs in [`meshcop`] — are lower-level protocol building blocks. They are
-//! exported so the coverage-guided fuzz harnesses can drive the wire parsers
-//! directly and so advanced users can build or inspect MeshCoP messages, but
-//! they are not the recommended entry point.
+//! The remaining modules — [`crypto`], [`tlv`], and the CoAP/MeshCoP codecs in
+//! [`meshcop`] — are lower-level protocol building blocks. They are exported so
+//! the coverage-guided fuzz harnesses can drive the wire parsers directly and
+//! so advanced users can build or inspect MeshCoP messages, but they are not
+//! the recommended entry point. The DTLS 1.2 profile and EC J-PAKE handshake
+//! live in the separate `thread-dtls` crate.
 
 #[cfg(feature = "cli")]
 pub mod cli;
 pub mod commissioner;
 pub mod crypto;
 pub mod dataset;
-pub mod dtls;
 pub mod error;
 pub mod meshcop;
 pub mod tlv;

@@ -6,7 +6,7 @@ use zeroize::Zeroizing;
 
 use crate::{
     Result,
-    crypto::{EcJpakeParty, EcJpakeRole, RoundOne, RoundTwo, THREAD_SERVER_ID},
+    ecjpake::{EcJpakeParty, EcJpakeRole, RoundOne, RoundTwo, THREAD_SERVER_ID},
     error::Error,
 };
 

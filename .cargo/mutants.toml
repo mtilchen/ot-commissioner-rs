@@ -6,6 +6,10 @@
 # behavior whose whole-suite mutation result is non-termination belong here.
 # Document the reason above each entry.
 
+# Mutants in thread-dtls are killed largely by ot-commissioner-rs's commissioner
+# tests; run the whole workspace's tests against every mutant.
+test_workspace = true
+
 exclude_re = [
     # Equivalent mutant: when `sequence == newest` the mutated guard selects
     # the catch-up arm, which computes `(seen << 0) | 1` and rewrites

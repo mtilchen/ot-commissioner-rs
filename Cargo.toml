@@ -2,7 +2,7 @@
 # Virtual manifests carry no edition, so the resolver must be explicit.
 # "3" is the edition-2024 default.
 resolver = "3"
-members = ["crates/ot-commissioner-rs"]
+members = ["crates/thread-dtls", "crates/ot-commissioner-rs"]
 # The cargo-fuzz crate is nightly-only and keeps its own workspace so it never
 # joins the stable build graph.
 exclude = ["fuzz"]
@@ -14,6 +14,7 @@ rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
+thread-dtls = { path = "crates/thread-dtls", version = "0.1.0" }
 # RustCrypto symmetric/hash/RNG stack. These are intentionally held one major
 # behind their newest releases (aes 0.9, cmac 0.8, hmac 0.13, sha2 0.11,
 # rand_core 0.10): those are the new RustCrypto generation built on

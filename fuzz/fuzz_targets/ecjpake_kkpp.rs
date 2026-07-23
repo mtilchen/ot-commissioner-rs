@@ -1,7 +1,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use ot_commissioner_rs::crypto::{RoundOne, THREAD_CLIENT_ID, THREAD_SERVER_ID};
+use thread_dtls::ecjpake::{RoundOne, THREAD_CLIENT_ID, THREAD_SERVER_ID};
 
 // EC J-PAKE round-one (ECJPAKEKeyKPPairList) decoding from the ClientHello /
 // ServerHello kkpp extension. Point and proof validation must reject malformed

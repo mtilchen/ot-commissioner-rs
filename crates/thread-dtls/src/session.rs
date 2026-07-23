@@ -1,6 +1,6 @@
 //! Tokio-backed DTLS session driver.
 
-use crate::{Result, crypto::RecordProtectionKey, error::Error};
+use crate::{Result, ccm::RecordProtectionKey, error::Error};
 
 use super::{
     handshake::{

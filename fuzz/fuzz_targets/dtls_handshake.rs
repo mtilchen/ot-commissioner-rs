@@ -1,7 +1,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use ot_commissioner_rs::dtls::{
+use thread_dtls::{
     ContentType, DtlsRecord, HandshakeFragment, HandshakeHeader, HandshakeReassembler,
     parse_unfragmented_handshake_messages,
 };

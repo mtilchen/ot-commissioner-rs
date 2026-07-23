@@ -2,7 +2,7 @@
 
 use crate::{
     Result,
-    crypto::{
+    ccm::{
         AesCcm8, RecordProtectionKey, TLS_CCM_8_TAG_LEN, TLS_CCM_EXPLICIT_NONCE_LEN,
         TLS_CCM_FIXED_IV_LEN, dtls_ccm_nonce,
     },

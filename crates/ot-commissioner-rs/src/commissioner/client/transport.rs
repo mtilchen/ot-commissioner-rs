@@ -6,10 +6,10 @@ use std::net::Ipv6Addr;
 use crate::{
     Result,
     dataset::Dataset,
-    dtls::DtlsSession,
     error::Error,
     meshcop::{self, CommissionerOperation},
 };
+use thread_dtls::DtlsSession;
 
 use super::super::types::{CommissionerEvent, CommissionerState, DatasetFlags};
 use super::{
@@ -283,11 +283,11 @@ impl Commissioner {
 
     async fn ensure_dtls_session(&mut self) -> Result<()> {
         if self.dtls_session.is_none() {
-            let session = with_dtls_handshake_timeout(DtlsSession::connect(
-                &self.socket,
-                self.config.pskc.as_bytes(),
-                MESHCOP_TIMEOUT,
-            ))
+            let session = with_dtls_handshake_timeout(async {
+                DtlsSession::connect(&self.socket, self.config.pskc.as_bytes(), MESHCOP_TIMEOUT)
+                    .await
+                    .map_err(Error::from)
+            })
             .await?;
             self.dtls_session = Some(session);
         }
@@ -310,7 +310,10 @@ impl Commissioner {
             .dtls_session
             .as_mut()
             .ok_or(Error::InvalidState("DTLS session is not established"))?;
-        session.send_application_data(&self.socket, data).await
+        session
+            .send_application_data(&self.socket, data)
+            .await
+            .map_err(Error::from)
     }
 
     pub(super) async fn recv_application_data(&mut self) -> Result<Vec<u8>> {
@@ -321,6 +324,7 @@ impl Commissioner {
         session
             .recv_application_data(&self.socket, MESHCOP_TIMEOUT)
             .await
+            .map_err(Error::from)
     }
 
     async fn ack_if_confirmable(&mut self, message: &meshcop::CoapMessage) -> Result<()> {

@@ -320,17 +320,14 @@ version = "0.1.0"
 dependencies = [
  "aes",
  "argh",
- "ccm",
  "cmac",
  "hex",
- "hmac",
- "p256",
  "rand_core",
  "serde",
  "serde_json",
  "sha2",
- "subtle",
  "thiserror",
+ "thread-dtls",
  "tokio",
  "zeroize",
 ]
@@ -509,6 +506,23 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "thread-dtls"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "ccm",
+ "hex",
+ "hmac",
+ "p256",
+ "rand_core",
+ "sha2",
+ "subtle",
+ "thiserror",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]
