@@ -23,16 +23,16 @@ filters=()
 case "${scope}" in
   targeted)
     filters=(
-      --file 'src/commissioner/client/*.rs'
-      --file src/commissioner/joiner.rs
-      --file src/meshcop/coap.rs
-      --file 'src/meshcop/diag/*.rs'
-      --file src/meshcop/parsers.rs
-      --file src/meshcop/builders.rs
-      --file src/dtls/session.rs
-      --file src/dtls/handshake.rs
-      --file src/dtls/thread_server_handshake.rs
-      --file 'src/crypto/ecjpake/*.rs'
+      --file 'crates/ot-commissioner-rs/src/commissioner/client/*.rs'
+      --file crates/ot-commissioner-rs/src/commissioner/joiner.rs
+      --file crates/ot-commissioner-rs/src/meshcop/coap.rs
+      --file 'crates/ot-commissioner-rs/src/meshcop/diag/*.rs'
+      --file crates/ot-commissioner-rs/src/meshcop/parsers.rs
+      --file crates/ot-commissioner-rs/src/meshcop/builders.rs
+      --file crates/ot-commissioner-rs/src/dtls/session.rs
+      --file crates/ot-commissioner-rs/src/dtls/handshake.rs
+      --file crates/ot-commissioner-rs/src/dtls/thread_server_handshake.rs
+      --file 'crates/ot-commissioner-rs/src/crypto/ecjpake/*.rs'
     )
     ;;
   full)

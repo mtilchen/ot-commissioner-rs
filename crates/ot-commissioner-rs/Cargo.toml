@@ -1,0 +1,45 @@
+[package]
+name = "ot-commissioner-rs"
+description = "Rust foundations for OpenThread commissioner sessions over MeshCoP"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = []
+# The `ot-commissioner-rs` REPL binary, a faithful reimplementation of the C++
+# `ot-commissioner` CLI. Off by default so the library's dependency surface stays
+# minimal; build/run with `--features cli`.
+cli = ["dep:serde", "dep:serde_json"]
+
+[dependencies]
+aes.workspace = true
+ccm.workspace = true
+cmac.workspace = true
+hex.workspace = true
+hmac.workspace = true
+p256.workspace = true
+rand_core.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+zeroize.workspace = true
+# CLI-only, pulled in solely by the `cli` feature.
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+[dev-dependencies]
+argh.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# test-util enables tokio::test(start_paused) so event-pump deadlines elapse
+# instantly in deterministic CLI tests; process/io-util let the interop test
+# drive a simulated OpenThread joiner CLI as a child process.
+tokio = { workspace = true, features = ["test-util", "process", "io-util"] }
+
+[[bin]]
+name = "ot-commissioner-rs"
+path = "src/main.rs"
+required-features = ["cli"]

@@ -150,7 +150,7 @@ run_interop_test() {
     OT_COMMISSIONER_INTEROP_BORDER_AGENT="[::1]:${ba_port}" \
         OT_COMMISSIONER_INTEROP_DATASET_HEX="${dataset_hex}" \
         OT_COMMISSIONER_INTEROP_JOINER_CLI="${ot_cli_ftd}" \
-        cargo test --test interop_openthread --all-features -- \
+        cargo test -p ot-commissioner-rs --test interop_openthread --all-features -- \
         --ignored --nocapture --test-threads=1
 }
 

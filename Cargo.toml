@@ -1,25 +1,25 @@
-[package]
-name = "ot-commissioner-rs"
+[workspace]
+# Virtual manifests carry no edition, so the resolver must be explicit.
+# "3" is the edition-2024 default.
+resolver = "3"
+members = ["crates/ot-commissioner-rs"]
+# The cargo-fuzz crate is nightly-only and keeps its own workspace so it never
+# joins the stable build graph.
+exclude = ["fuzz"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
-description = "Rust foundations for OpenThread commissioner sessions over MeshCoP"
 
-[features]
-default = []
-# The `ot-commissioner-rs` REPL binary, a faithful reimplementation of the C++
-# `ot-commissioner` CLI. Off by default so the library's dependency surface stays
-# minimal; build/run with `--features cli`.
-cli = ["dep:serde", "dep:serde_json"]
-
-[dependencies]
+[workspace.dependencies]
 # RustCrypto symmetric/hash/RNG stack. These are intentionally held one major
 # behind their newest releases (aes 0.9, cmac 0.8, hmac 0.13, sha2 0.11,
 # rand_core 0.10): those are the new RustCrypto generation built on
 # `digest 0.11` / `cipher 0.5` / the reworked `rand_core` traits, which cannot
 # interoperate with the only *stable* releases of `p256` (0.13.2) and `ccm`
-# (0.5.0) that this crate also depends on. Moving them requires p256 0.14
+# (0.5.0) that this workspace also depends on. Moving them requires p256 0.14
 # (currently only release candidates). Bump these together with p256 once its
 # new generation ships stable.
 aes = "0.8.4"
@@ -30,25 +30,11 @@ p256 = { version = "0.13.2", default-features = false, features = ["arithmetic"]
 rand_core = { version = "0.6", features = ["getrandom"] }
 sha2 = "0.10"
 # Latest-stable, no generation coupling.
+argh = "0.1.19"
 hex = "0.4.3"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
 subtle = "2.6.1"
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["net", "time", "macros", "rt-multi-thread"] }
 zeroize = { version = "1.9.0", features = ["derive"] }
-# CLI-only, pulled in solely by the `cli` feature.
-serde = { version = "1.0.228", features = ["derive"], optional = true }
-serde_json = { version = "1.0.150", optional = true }
-
-[dev-dependencies]
-argh = "0.1.19"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
-# test-util enables tokio::test(start_paused) so event-pump deadlines elapse
-# instantly in deterministic CLI tests; process/io-util let the interop test
-# drive a simulated OpenThread joiner CLI as a child process.
-tokio = { version = "1.52.3", features = ["test-util", "process", "io-util"] }
-
-[[bin]]
-name = "ot-commissioner-rs"
-path = "src/main.rs"
-required-features = ["cli"]

@@ -22,7 +22,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 
 [dependencies.ot-commissioner-rs]
-path = ".."
+path = "../crates/ot-commissioner-rs"
 
 # Keep this crate out of the parent package's build graph.
 [workspace]
