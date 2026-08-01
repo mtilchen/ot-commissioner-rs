@@ -49,8 +49,6 @@ mod record;
 mod record_protection;
 #[cfg(any(feature = "tokio", feature = "embedded"))]
 mod server_driver;
-#[cfg(all(test, feature = "tokio"))]
-mod session;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 mod thread_handshake;

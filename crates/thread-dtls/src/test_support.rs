@@ -130,17 +130,26 @@ pub async fn loopback_dtls_server_with_rng(
                         socket.send(&alert.encode()?).await?;
                         return Ok(None);
                     }
-                    let plaintext = open_aes_128_ccm_8_record(
+                    let plaintext = match open_aes_128_ccm_8_record(
                         &record,
                         RecordProtectionKey::new(keys.key_block.client_write_key),
                         &keys.key_block.client_write_iv,
-                    )?;
+                    ) {
+                        Ok(plaintext) => plaintext,
+                        Err(error) => {
+                            send_fatal_handshake_alert(socket, epoch0_seq).await?;
+                            return Err(error);
+                        }
+                    };
                     let plain_record = DtlsRecord::new(ContentType::Handshake, 1, 0, plaintext)?;
                     let finished = parse_unfragmented_handshake_record(
                         &plain_record,
                         HandshakeType::Finished,
                     )?;
-                    server.verify_client_finished(&finished, keys)?;
+                    if let Err(error) = server.verify_client_finished(&finished, keys) {
+                        send_fatal_handshake_alert(socket, epoch0_seq).await?;
+                        return Err(error);
+                    }
                     let server_finished = server.build_server_finished(4, keys)?;
                     let mut datagram =
                         DtlsRecord::new(ContentType::ChangeCipherSpec, 0, epoch0_seq, vec![1])?
@@ -163,4 +172,23 @@ pub async fn loopback_dtls_server_with_rng(
             }
         }
     }
+}
+
+/// Sends a fatal handshake-failure alert, mirroring the production
+/// `server_driver` acceptor's behavior when the client's Finished fails to
+/// decrypt or verify. Without this, a caller that intentionally sends a
+/// Finished the server will reject (e.g. a mismatched-PSKc test) gets no
+/// response at all and must wait out its full receive timeout instead of
+/// observing a prompt alert.
+async fn send_fatal_handshake_alert(socket: &UdpSocket, sequence_number: u64) -> Result<()> {
+    const ALERT_LEVEL_FATAL: u8 = 2;
+    const ALERT_HANDSHAKE_FAILURE: u8 = 40;
+    let alert = DtlsRecord::new(
+        ContentType::Alert,
+        0,
+        sequence_number,
+        vec![ALERT_LEVEL_FATAL, ALERT_HANDSHAKE_FAILURE],
+    )?;
+    socket.send(&alert.encode()?).await?;
+    Ok(())
 }
