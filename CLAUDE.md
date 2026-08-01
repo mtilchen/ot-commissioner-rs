@@ -135,6 +135,11 @@ When touching `crates/thread-dtls`, also build the no_std profile the CI
 cargo build -p thread-dtls --no-default-features --target riscv32imac-unknown-none-elf
 ```
 
+When adding, deleting, or demoting source files in a crate the mutation gate
+targets, check that the `targeted` globs in `tools/ci/mutants.sh` still
+describe the production surface — the gate silently keeps mutating whatever
+the globs name, including retired code, while new files escape it.
+
 `tools/ci/coverage.sh` (cargo-llvm-cov) and `tools/ci/mutants.sh`
 (cargo-mutants) back the coverage and mutation gates in
 `.github/workflows/quality.yml`.
